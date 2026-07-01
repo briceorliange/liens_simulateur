@@ -687,7 +687,7 @@ function startRenderLoop(useFallback){
         numHands: 2
       });
       handTrackingReady = true;
-      if(handStatusEl) handStatusEl.style.display = 'none';
+      if(handStatusEl) handStatusEl.textContent = '· prêt';
     }catch(e){
       console.warn('Suivi des mains indisponible :', e);
       if(handStatusEl) handStatusEl.textContent = '· indisponible';
@@ -695,20 +695,33 @@ function startRenderLoop(useFallback){
   })();
 
   let handBoxes = [];
+  let lastGoodBoxes = [];
+  let lastGoodTime = 0;
   let lastHandDetect = 0;
   function detectHands(t){
-    if(!handTrackingReady || useFallback || !state.latency.on){ handBoxes = []; return; }
-    if(t - lastHandDetect < 70) return; // ~14 détections/s, suffisant et léger pour le mobile
+    if(!handTrackingReady || useFallback || !state.latency.on){ handBoxes = []; lastGoodBoxes = []; return; }
+    if(t - lastHandDetect < 60) return; // ~16 détections/s
     lastHandDetect = t;
     try{
       const res = handLandmarker.detectForVideo(video, t);
-      handBoxes = (res.landmarks||[]).map(lm=>{
+      const boxes = (res.landmarks||[]).map(lm=>{
         let minX=1,minY=1,maxX=0,maxY=0;
         lm.forEach(p=>{ minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); });
-        const pad=0.05;
+        const pad=0.06;
         return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, w:(maxX-minX)+pad*2, h:(maxY-minY)+pad*2 };
       });
+      if(boxes.length>0){ lastGoodBoxes = boxes; lastGoodTime = t; }
     }catch(e){ /* frame transitoire ignorée */ }
+
+    // Persistance : on garde la dernière détection valide ~350ms pour lisser les décrochages
+    if(t - lastGoodTime < 350) handBoxes = lastGoodBoxes;
+    else { handBoxes = []; lastGoodBoxes = []; }
+
+    if(handStatusEl){
+      handStatusEl.style.display = '';
+      handStatusEl.textContent = handBoxes.length>0 ? ('· '+handBoxes.length+' main'+(handBoxes.length>1?'s':'')+' ✓') : '· cherche une main…';
+      handStatusEl.style.color = handBoxes.length>0 ? 'var(--accent)' : 'var(--accent-warn)';
+    }
   }
 
   // Retrouve, dans le buffer temporel, l'image la plus proche de "maintenant moins delayMs"
@@ -730,7 +743,7 @@ function startRenderLoop(useFallback){
 
   function drawHandLag(t, ax, ay){
     if(!state.latency.on || handBoxes.length===0 || !ring) return;
-    const delayMs = (state.latency.delay/100) * 900;
+    const delayMs = 220 + (state.latency.delay/100) * 700; // 0,22s à 0,92s : toujours perceptible
     const delayed = findDelayedSlot(t, delayMs);
     if(!delayed) return;
 
