@@ -215,12 +215,57 @@
 
     <div class="effect" data-effect="latency">
       <div class="effect-head">
-        <span class="name">Décalage / latence (préhension)</span>
+        <span class="name">Retard de préhension (attraper / serrer une main)</span>
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
-        <div class="sub-row"><label>Latence</label><input type="range" class="fx-sub" data-k="lag" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Retard</label><input type="range" class="fx-sub" data-k="lag" min="0" max="100" value="40"></div>
         <div class="sub-row"><label>Tremblement</label><input type="range" class="fx-sub" data-k="tremor" min="0" max="100" value="25"></div>
+      </div>
+    </div>
+
+    <h2>Effets complémentaires</h2>
+
+    <div class="effect" data-effect="tint">
+      <div class="effect-head">
+        <span class="name">Vision jaunâtre</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Température</label><input type="range" class="fx-sub" data-k="warmth" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Teinte</label><input type="range" class="fx-sub" data-k="hue" min="0" max="100" value="35"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="unstable">
+      <div class="effect-head">
+        <span class="name">Vision instable</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Amplitude</label><input type="range" class="fx-sub" data-k="amplitude" min="0" max="100" value="30"></div>
+        <div class="sub-row"><label>Vitesse</label><input type="range" class="fx-sub" data-k="speed" min="0" max="100" value="35"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="dim">
+      <div class="effect-head">
+        <span class="name">Perte de luminosité</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="35"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="fog">
+      <div class="effect-head">
+        <span class="name">Brouillard cognitif</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Double vision</label><input type="range" class="fx-sub" data-k="ghost" min="0" max="100" value="35"></div>
+        <div class="sub-row"><label>Netteté</label><input type="range" class="fx-sub" data-k="sharpness" min="0" max="100" value="40"></div>
       </div>
     </div>
 
@@ -243,6 +288,10 @@ const state = {
   blur:     { on:false, intensity:40, diameter:35 },
   tunnel:   { on:false, diameter:55, opacity:90, softness:30 },
   contrast: { on:false, contrast:45, saturation:40 },
+  tint:     { on:false, warmth:40, hue:35 },
+  unstable: { on:false, amplitude:30, speed:35 },
+  dim:      { on:false, amount:35 },
+  fog:      { on:false, ghost:35, sharpness:40 },
   halluc:   { on:false, frequency:35, intensity:50 },
   distort:  { on:false, amplitude:30, speed:25 },
   latency:  { on:false, lag:40, tremor:25 }
@@ -254,6 +303,10 @@ function applyStagePreset(v){
   state.blur.on = t > 0.05;      state.blur.intensity = 15+t*70;  state.blur.diameter = 20+t*40;
   state.tunnel.on = t > 0.15;    state.tunnel.diameter = 75-t*45; state.tunnel.opacity = 60+t*40; state.tunnel.softness = 40-t*20;
   state.contrast.on = t > 0.1;   state.contrast.contrast = 15+t*65; state.contrast.saturation = 10+t*70;
+  state.tint.on = t > 0.2;       state.tint.warmth = 10+t*60;      state.tint.hue = 10+t*50;
+  state.unstable.on = t > 0.4;   state.unstable.amplitude = Math.max(0,(t-0.35)*70); state.unstable.speed = 20+t*40;
+  state.dim.on = t > 0.3;        state.dim.amount = Math.max(0,(t-0.25)*55);
+  state.fog.on = t > 0.3;        state.fog.ghost = Math.max(0,(t-0.25)*60); state.fog.sharpness = Math.max(0,(t-0.25)*50);
   state.halluc.on = t > 0.45;    state.halluc.frequency = Math.max(0,(t-0.4)*80); state.halluc.intensity = 30+t*60;
   state.distort.on = t > 0.35;   state.distort.amplitude = Math.max(0,(t-0.3)*60); state.distort.speed = 15+t*40;
   state.latency.on = t > 0.25;   state.latency.lag = Math.max(0,(t-0.2)*70); state.latency.tremor = Math.max(0,(t-0.2)*50);
@@ -368,6 +421,14 @@ uniform float uBlurOn, uBlurIntensity, uBlurDiameter;
 uniform float uTunnelOn, uTunnelDiameter, uTunnelOpacity, uTunnelSoftness;
 // Contraste
 uniform float uContrastOn, uContrastAmt, uSaturationAmt;
+// Vision jaunâtre
+uniform float uTintOn, uTintWarmth, uTintHue;
+// Vision instable
+uniform float uUnstableOn, uUnstableAmp, uUnstableSpeed;
+// Perte de luminosité
+uniform float uDimOn, uDimAmt;
+// Brouillard cognitif
+uniform float uFogOn, uFogGhost, uFogSharpness;
 // Distorsion
 uniform float uDistortOn, uDistortAmp, uDistortSpeed;
 // Latence
@@ -403,6 +464,13 @@ void main(){
     uv += vec2(sin(uTime*14.0), cos(uTime*11.0)) * trem;
   }
 
+  // --- Vision instable : oscillation + respiration de l'image ---
+  if(uUnstableOn > 0.5){
+    float breathe = sin(uTime*uUnstableSpeed*0.6) * uUnstableAmp * 0.02;
+    uv = (uv - center) * (1.0 + breathe) + center;
+    uv += vec2(sin(uTime*uUnstableSpeed*2.3), cos(uTime*uUnstableSpeed*1.7)) * uUnstableAmp * 0.006;
+  }
+
   vec3 col = sampleVideo(uv);
 
   // --- Flou central (macula) : multi-tap radial ---
@@ -424,10 +492,20 @@ void main(){
     }
   }
 
-  // --- Latence : mélange avec la frame précédente ---
+  // --- Latence : vrai décalage temporel (préhension / poignée de main) ---
   if(uLatencyOn > 0.5){
     vec3 prev = texture(uPrevTex, clamp(fitUv(uv+vec2(0.01,0.0)),0.0,1.0)).rgb;
-    col = mix(col, prev, uLatencyLag * 0.55);
+    col = mix(col, prev, clamp(uLatencyLag * 0.95, 0.0, 0.9));
+  }
+
+  // --- Vision jaunâtre ---
+  if(uTintOn > 0.5){
+    col.b -= uTintWarmth * 0.35;
+    col.r += uTintWarmth * 0.12;
+    col.g += uTintWarmth * 0.05;
+    col = clamp(col, 0.0, 1.0);
+    vec3 warm = vec3(0.95, 0.83, 0.55);
+    col = mix(col, col*warm, uTintHue);
   }
 
   // --- Contraste / saturation ---
@@ -437,7 +515,24 @@ void main(){
     float sat = 1.0 - uSaturationAmt*0.9;
     float g = dot(col, vec3(0.299,0.587,0.114));
     col = mix(vec3(g), col, sat);
-    col += vec3(0.03,0.02,-0.01) * uContrastAmt; // léger jaunissement
+  }
+
+  // --- Brouillard cognitif : double vision + perte de netteté ---
+  if(uFogOn > 0.5){
+    vec2 off = vec2(uFogGhost*0.022, uFogGhost*0.01);
+    vec3 ghost = sampleVideo(uv+off);
+    col = mix(col, (col+ghost)*0.5, 0.6);
+    float r2 = uFogSharpness*0.01;
+    vec3 soft = col;
+    soft += sampleVideo(uv+vec2(r2,0.0));
+    soft += sampleVideo(uv-vec2(r2,0.0));
+    soft += sampleVideo(uv+vec2(0.0,r2));
+    col = mix(col, soft*0.25, 0.55);
+  }
+
+  // --- Perte de luminosité ---
+  if(uDimOn > 0.5){
+    col *= (1.0 - uDimAmt*0.75);
   }
 
   // --- Vision tunnel ---
@@ -490,6 +585,10 @@ const U = {};
 ['uTime','uAspectFix','uBlurOn','uBlurIntensity','uBlurDiameter',
  'uTunnelOn','uTunnelDiameter','uTunnelOpacity','uTunnelSoftness',
  'uContrastOn','uContrastAmt','uSaturationAmt',
+ 'uTintOn','uTintWarmth','uTintHue',
+ 'uUnstableOn','uUnstableAmp','uUnstableSpeed',
+ 'uDimOn','uDimAmt',
+ 'uFogOn','uFogGhost','uFogSharpness',
  'uDistortOn','uDistortAmp','uDistortSpeed',
  'uLatencyOn','uLatencyLag','uLatencyTremor',
  'uTex','uPrevTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
@@ -577,7 +676,7 @@ function startRenderLoop(useFallback){
     gl.bindTexture(gl.TEXTURE_2D, videoTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
 
-    if(t - lastCopy > 90){ // rafraîchit le buffer "retardé" ~11x/s
+    if(t - lastCopy > (60 + state.latency.lag*5.5)){ // plus le retard est fort, plus l'image affichée est "ancienne"
       gl.bindTexture(gl.TEXTURE_2D, prevTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
       lastCopy = t;
@@ -605,6 +704,21 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uContrastOn, state.contrast.on?1:0);
     gl.uniform1f(U.uContrastAmt, state.contrast.contrast/100);
     gl.uniform1f(U.uSaturationAmt, state.contrast.saturation/100);
+
+    gl.uniform1f(U.uTintOn, state.tint.on?1:0);
+    gl.uniform1f(U.uTintWarmth, state.tint.warmth/100);
+    gl.uniform1f(U.uTintHue, state.tint.hue/100);
+
+    gl.uniform1f(U.uUnstableOn, state.unstable.on?1:0);
+    gl.uniform1f(U.uUnstableAmp, state.unstable.amplitude/100);
+    gl.uniform1f(U.uUnstableSpeed, state.unstable.speed/100);
+
+    gl.uniform1f(U.uDimOn, state.dim.on?1:0);
+    gl.uniform1f(U.uDimAmt, state.dim.amount/100);
+
+    gl.uniform1f(U.uFogOn, state.fog.on?1:0);
+    gl.uniform1f(U.uFogGhost, state.fog.ghost/100);
+    gl.uniform1f(U.uFogSharpness, state.fog.sharpness/100);
 
     gl.uniform1f(U.uDistortOn, state.distort.on?1:0);
     gl.uniform1f(U.uDistortAmp, state.distort.amplitude/100);
