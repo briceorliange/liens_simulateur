@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>LIENS — Simulateur de troubles visuels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0C0E;
+    --surface:rgba(22,24,27,0.92);
+    --surface-2:rgba(255,255,255,0.05);
+    --text:#ECE9E2;
+    --muted:#8A8F94;
+    --accent:#49C6B0;
+    --accent-warn:#E8A33D;
+    --line:rgba(255,255,255,0.10);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; margin:0; background:var(--bg); overflow:hidden; overscroll-behavior:none;}
+  body{font-family:'IBM Plex Sans',sans-serif; color:var(--text);}
+  #app{position:fixed; inset:0;}
+  video{display:none;}
+  canvas{position:absolute; inset:0; width:100%; height:100%;}
+  #fxcanvas{pointer-events:none;}
+
+  #topbar{
+    position:absolute; top:0; left:0; right:0;
+    padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 10px;
+    display:flex; align-items:baseline; justify-content:space-between;
+    background:linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+    pointer-events:none; z-index:5;
+  }
+  #topbar .brand{font-size:14px; font-weight:600; letter-spacing:0.06em;}
+  #topbar .sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); letter-spacing:0.03em;}
+
+  #permission-overlay{
+    position:absolute; inset:0; z-index:20;
+    background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:32px;
+  }
+  #permission-overlay .eyebrow{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--accent); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:14px;}
+  #permission-overlay h1{font-size:22px; font-weight:600; margin:0 0 10px; max-width:320px; line-height:1.35;}
+  #permission-overlay p{font-size:13px; color:var(--muted); max-width:300px; line-height:1.6; margin:0 0 28px;}
+  #enable-btn{
+    font-family:'IBM Plex Sans',sans-serif; font-weight:600; font-size:15px;
+    background:var(--accent); color:#06201C; border:none; border-radius:999px;
+    padding:14px 30px; cursor:pointer;
+  }
+  #enable-btn:active{opacity:0.85;}
+  #perm-error{color:var(--accent-warn); font-family:'IBM Plex Mono',monospace; font-size:11px; margin-top:16px; max-width:280px; display:none;}
+
+  #panel-toggle{
+    position:absolute; right:14px; bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    z-index:10; width:52px; height:52px; border-radius:50%;
+    background:var(--accent); border:none; color:#06201C;
+    font-size:20px; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 18px rgba(0,0,0,0.4);
+  }
+
+  #panel{
+    position:absolute; left:0; right:0; bottom:0; z-index:9;
+    background:var(--surface); backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);
+    border-radius:18px 18px 0 0;
+    padding:14px 18px calc(env(safe-area-inset-bottom,0px) + 18px);
+    transform:translateY(calc(100% - 40px));
+    transition:transform 0.35s cubic-bezier(.4,0,.2,1);
+    max-height:78vh; overflow-y:auto;
+  }
+  #panel.open{transform:translateY(0);}
+  #panel .grabber{width:36px; height:4px; background:var(--line); border-radius:2px; margin:0 auto 14px;}
+
+  #panel h2{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin:18px 0 10px;}
+  #panel h2:first-of-type{margin-top:0;}
+
+  .stage-block{padding:2px 0 10px;}
+  .stage-labels{display:flex; justify-content:space-between; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); margin-top:6px;}
+  .stage-labels span.active{color:var(--text); font-weight:500;}
+
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:2px;
+    background:var(--surface-2); outline:none; margin:8px 0;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background:var(--text); border:3px solid var(--accent); cursor:pointer; margin-top:-7px;
+  }
+  #stage-range{height:6px;}
+  #stage-range::-webkit-slider-thumb{border-color:var(--accent-warn); background:var(--text);}
+  #stage-range{background:linear-gradient(to right, var(--accent), var(--accent-warn));}
+
+  .effect{border-top:1px solid var(--line); padding:12px 0;}
+  .effect-head{display:flex; align-items:center; justify-content:space-between;}
+  .effect-head .name{font-size:13.5px; font-weight:500;}
+  .effect-head .val{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted);}
+
+  .switch{position:relative; width:38px; height:22px; flex-shrink:0;}
+  .switch input{opacity:0; width:0; height:0;}
+  .slider-toggle{position:absolute; inset:0; background:var(--surface-2); border-radius:999px; transition:0.2s; cursor:pointer;}
+  .slider-toggle:before{content:""; position:absolute; width:16px; height:16px; left:3px; top:3px; background:var(--muted); border-radius:50%; transition:0.2s;}
+  input:checked + .slider-toggle{background:rgba(73,198,176,0.3);}
+  input:checked + .slider-toggle:before{transform:translateX(16px); background:var(--accent);}
+
+  .sub-sliders{display:grid; gap:2px; margin-top:6px; opacity:0.35; pointer-events:none; transition:opacity 0.2s;}
+  .effect.on .sub-sliders{opacity:1; pointer-events:auto;}
+  .sub-row{display:flex; align-items:center; gap:10px;}
+  .sub-row label{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); width:64px; flex-shrink:0;}
+
+  #reset-row{display:flex; gap:10px; margin-top:16px;}
+  #reset-row button{
+    flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.04em;
+    background:var(--surface-2); color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:10px; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="glcanvas"></canvas>
+  <canvas id="fxcanvas"></canvas>
+
+  <div id="topbar">
+    <div>
+      <div class="brand">LIENS</div>
+      <div class="sub">PFT CURE-IT · CMQe SBE</div>
+    </div>
+    <div class="sub" id="stage-tag">STADE — LÉGER</div>
+  </div>
+
+  <div id="permission-overlay">
+    <div class="eyebrow">Simulateur immersif</div>
+    <h1>Lunettes Immersives pour Expériences en Neuropathologie Simulée</h1>
+    <p>Ce prototype utilise la caméra pour reproduire, en temps réel, les troubles visuels rencontrés dans les démences. Tiens le téléphone comme une visionneuse, à hauteur des yeux.</p>
+    <button id="enable-btn">Activer la caméra</button>
+    <div id="perm-error">Caméra refusée ou indisponible. Vérifie les autorisations du navigateur, ou continue en mode démonstration (image fixe).</div>
+  </div>
+
+  <button id="panel-toggle" aria-label="Réglages">⚙</button>
+
+  <div id="panel">
+    <div class="grabber"></div>
+
+    <h2>Stade de la maladie</h2>
+    <div class="stage-block">
+      <input type="range" id="stage-range" min="0" max="100" value="15">
+      <div class="stage-labels">
+        <span id="lbl-leger">Léger</span>
+        <span id="lbl-modere">Modéré</span>
+        <span id="lbl-severe">Sévère</span>
+      </div>
+    </div>
+
+    <h2>Effets — MVP LIENS</h2>
+
+    <div class="effect" data-effect="blur">
+      <div class="effect-head">
+        <span class="name">Flou central (macula)</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="35"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="tunnel">
+      <div class="effect-head">
+        <span class="name">Vision tunnel</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="55"></div>
+        <div class="sub-row"><label>Opacité</label><input type="range" class="fx-sub" data-k="opacity" min="0" max="100" value="90"></div>
+        <div class="sub-row"><label>Dégradé</label><input type="range" class="fx-sub" data-k="softness" min="0" max="100" value="30"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="contrast">
+      <div class="effect-head">
+        <span class="name">Perte de contrastes</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Contraste</label><input type="range" class="fx-sub" data-k="contrast" min="0" max="100" value="45"></div>
+        <div class="sub-row"><label>Saturation</label><input type="range" class="fx-sub" data-k="saturation" min="0" max="100" value="40"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="halluc">
+      <div class="effect-head">
+        <span class="name">Hallucinations périphériques</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Fréquence</label><input type="range" class="fx-sub" data-k="frequency" min="0" max="100" value="35"></div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="50"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="distort">
+      <div class="effect-head">
+        <span class="name">Déformation spatiale</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Amplitude</label><input type="range" class="fx-sub" data-k="amplitude" min="0" max="100" value="30"></div>
+        <div class="sub-row"><label>Vitesse</label><input type="range" class="fx-sub" data-k="speed" min="0" max="100" value="25"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="latency">
+      <div class="effect-head">
+        <span class="name">Décalage / latence (préhension)</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Latence</label><input type="range" class="fx-sub" data-k="lag" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Tremblement</label><input type="range" class="fx-sub" data-k="tremor" min="0" max="100" value="25"></div>
+      </div>
+    </div>
+
+    <div id="reset-row">
+      <button id="btn-reset">Réinitialiser</button>
+      <button id="btn-allon">Tout activer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+   LIENS — prototype web
+   6 effets MVP pilotés par un état central `state`, un slider "Stade"
+   qui pré-règle tout, et un rendu WebGL2 (vidéo caméra) + un calque
+   2D pour les hallucinations.
+------------------------------------------------------------------- */
+
+const state = {
+  blur:     { on:false, intensity:40, diameter:35 },
+  tunnel:   { on:false, diameter:55, opacity:90, softness:30 },
+  contrast: { on:false, contrast:45, saturation:40 },
+  halluc:   { on:false, frequency:35, intensity:50 },
+  distort:  { on:false, amplitude:30, speed:25 },
+  latency:  { on:false, lag:40, tremor:25 }
+};
+
+/* ---------- Presets par stade (0-100) ---------- */
+function applyStagePreset(v){
+  const t = v/100;
+  state.blur.on = t > 0.05;      state.blur.intensity = 15+t*70;  state.blur.diameter = 20+t*40;
+  state.tunnel.on = t > 0.15;    state.tunnel.diameter = 75-t*45; state.tunnel.opacity = 60+t*40; state.tunnel.softness = 40-t*20;
+  state.contrast.on = t > 0.1;   state.contrast.contrast = 15+t*65; state.contrast.saturation = 10+t*70;
+  state.halluc.on = t > 0.45;    state.halluc.frequency = Math.max(0,(t-0.4)*80); state.halluc.intensity = 30+t*60;
+  state.distort.on = t > 0.35;   state.distort.amplitude = Math.max(0,(t-0.3)*60); state.distort.speed = 15+t*40;
+  state.latency.on = t > 0.25;   state.latency.lag = Math.max(0,(t-0.2)*70); state.latency.tremor = Math.max(0,(t-0.2)*50);
+  syncUIFromState();
+}
+
+function syncUIFromState(){
+  document.querySelectorAll('.effect').forEach(el=>{
+    const key = el.dataset.effect;
+    const s = state[key];
+    el.querySelector('.fx-toggle').checked = s.on;
+    el.classList.toggle('on', s.on);
+    el.querySelectorAll('.fx-sub').forEach(inp=>{
+      const k = inp.dataset.k;
+      if(k in s){ inp.value = s[k]; }
+    });
+  });
+  const v = document.getElementById('stage-range').value;
+  const tag = v<33?'LÉGER':v<66?'MODÉRÉ':'SÉVÈRE';
+  document.getElementById('stage-tag').textContent = 'STADE — '+tag;
+  ['leger','modere','severe'].forEach(id=>document.getElementById('lbl-'+id).classList.remove('active'));
+  document.getElementById('lbl-'+(v<33?'leger':v<66?'modere':'severe')).classList.add('active');
+}
+
+/* ---------- UI wiring ---------- */
+document.getElementById('stage-range').addEventListener('input', e=>applyStagePreset(+e.target.value));
+
+document.querySelectorAll('.effect').forEach(el=>{
+  const key = el.dataset.effect;
+  el.querySelector('.fx-toggle').addEventListener('change', e=>{
+    state[key].on = e.target.checked;
+    el.classList.toggle('on', e.target.checked);
+  });
+  el.querySelectorAll('.fx-sub').forEach(inp=>{
+    inp.addEventListener('input', e=>{ state[key][inp.dataset.k] = +e.target.value; });
+  });
+});
+
+document.getElementById('btn-reset').addEventListener('click', ()=>{
+  document.getElementById('stage-range').value = 15;
+  applyStagePreset(15);
+});
+document.getElementById('btn-allon').addEventListener('click', ()=>{
+  Object.keys(state).forEach(k=>state[k].on = true);
+  syncUIFromState();
+});
+
+const panel = document.getElementById('panel');
+const panelToggle = document.getElementById('panel-toggle');
+panelToggle.addEventListener('click', ()=>panel.classList.toggle('open'));
+document.querySelector('#panel .grabber').addEventListener('click', ()=>panel.classList.toggle('open'));
+
+/* ---------- Caméra ---------- */
+const video = document.getElementById('video');
+const overlay = document.getElementById('permission-overlay');
+const errBox = document.getElementById('perm-error');
+
+document.getElementById('enable-btn').addEventListener('click', async ()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} },
+      audio:false
+    });
+    video.srcObject = stream;
+    await video.play();
+    overlay.style.display='none';
+    startRenderLoop();
+  }catch(err){
+    errBox.style.display='block';
+    startFallback();
+  }
+});
+
+/* ---------- WebGL setup ---------- */
+const glcanvas = document.getElementById('glcanvas');
+const fxcanvas = document.getElementById('fxcanvas');
+const fxctx = fxcanvas.getContext('2d');
+const gl = glcanvas.getContext('webgl2', {alpha:false});
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // corrige l'orientation de l'image caméra
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  [glcanvas, fxcanvas].forEach(c=>{
+    c.width = innerWidth*dpr; c.height = innerHeight*dpr;
+  });
+  if(gl) gl.viewport(0,0,glcanvas.width,glcanvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main(){
+  vUv = aPos*0.5+0.5;
+  gl_Position = vec4(aPos,0.0,1.0);
+}`;
+
+const FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+
+uniform sampler2D uTex;
+uniform sampler2D uPrevTex;
+uniform float uTime;
+uniform vec2  uAspectFix; // scale to correct video aspect vs canvas
+
+// Flou central
+uniform float uBlurOn, uBlurIntensity, uBlurDiameter;
+// Vision tunnel
+uniform float uTunnelOn, uTunnelDiameter, uTunnelOpacity, uTunnelSoftness;
+// Contraste
+uniform float uContrastOn, uContrastAmt, uSaturationAmt;
+// Distorsion
+uniform float uDistortOn, uDistortAmp, uDistortSpeed;
+// Latence
+uniform float uLatencyOn, uLatencyLag, uLatencyTremor;
+
+vec2 fitUv(vec2 uv){
+  vec2 c = (uv-0.5)*uAspectFix + 0.5;
+  return c;
+}
+
+vec3 sampleVideo(vec2 uv){
+  uv = fitUv(uv);
+  uv = clamp(uv, 0.0, 1.0);
+  return texture(uTex, uv).rgb;
+}
+
+void main(){
+  vec2 uv = vUv;
+  vec2 center = vec2(0.5);
+  float dist = distance(uv, center);
+
+  // --- Distorsion spatiale (avant échantillonnage) ---
+  if(uDistortOn > 0.5){
+    float amp = uDistortAmp * 0.02;
+    float sp = uDistortSpeed * 1.5;
+    uv.x += sin(uv.y*10.0 + uTime*sp) * amp;
+    uv.y += cos(uv.x*10.0 + uTime*sp*0.8) * amp * 0.7;
+  }
+
+  // --- Tremblement (latence) ---
+  if(uLatencyOn > 0.5){
+    float trem = uLatencyTremor * 0.004;
+    uv += vec2(sin(uTime*14.0), cos(uTime*11.0)) * trem;
+  }
+
+  vec3 col = sampleVideo(uv);
+
+  // --- Flou central (macula) : multi-tap radial ---
+  if(uBlurOn > 0.5){
+    float d = uBlurDiameter * 0.45 + 0.02;
+    float feather = 0.18;
+    float mask = 1.0 - smoothstep(d-feather, d, dist);
+    if(mask > 0.001){
+      float r = uBlurIntensity * 0.012;
+      vec3 acc = col;
+      float n = 1.0;
+      for(int i=0;i<8;i++){
+        float a = float(i) * 0.785398;
+        vec2 o = vec2(cos(a), sin(a)) * r;
+        acc += sampleVideo(uv+o);
+        n += 1.0;
+      }
+      col = mix(col, acc/n, mask);
+    }
+  }
+
+  // --- Latence : mélange avec la frame précédente ---
+  if(uLatencyOn > 0.5){
+    vec3 prev = texture(uPrevTex, clamp(fitUv(uv+vec2(0.01,0.0)),0.0,1.0)).rgb;
+    col = mix(col, prev, uLatencyLag * 0.55);
+  }
+
+  // --- Contraste / saturation ---
+  if(uContrastOn > 0.5){
+    float c = 1.0 - uContrastAmt*0.85;
+    col = (col-0.5)*c + 0.5;
+    float sat = 1.0 - uSaturationAmt*0.9;
+    float g = dot(col, vec3(0.299,0.587,0.114));
+    col = mix(vec3(g), col, sat);
+    col += vec3(0.03,0.02,-0.01) * uContrastAmt; // léger jaunissement
+  }
+
+  // --- Vision tunnel ---
+  if(uTunnelOn > 0.5){
+    float d2 = uTunnelDiameter * 0.5 + 0.03;
+    float soft = uTunnelSoftness * 0.3 + 0.02;
+    float mask = smoothstep(d2-soft, d2+soft, dist);
+    col = mix(col, vec3(0.0), mask * uTunnelOpacity);
+  }
+
+  outColor = vec4(col, 1.0);
+}`;
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+  }
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const quad = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+function tex(){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return t;
+}
+const videoTex = tex();
+const prevTex = tex();
+
+const U = {};
+['uTime','uAspectFix','uBlurOn','uBlurIntensity','uBlurDiameter',
+ 'uTunnelOn','uTunnelDiameter','uTunnelOpacity','uTunnelSoftness',
+ 'uContrastOn','uContrastAmt','uSaturationAmt',
+ 'uDistortOn','uDistortAmp','uDistortSpeed',
+ 'uLatencyOn','uLatencyLag','uLatencyTremor',
+ 'uTex','uPrevTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+
+/* ---------- Hallucinations (calque 2D) ---------- */
+let hallucShapes = [];
+let lastSpawn = 0;
+function spawnHalluc(freq, intensity){
+  const now = performance.now();
+  const gap = 3200 - freq*26; // plus la fréquence est haute, plus l'écart est court
+  if(now - lastSpawn < Math.max(300,gap)) return;
+  lastSpawn = now;
+  const w = fxcanvas.width, h = fxcanvas.height;
+  const edge = Math.random();
+  let x,y;
+  if(edge<0.25){ x=Math.random()*w; y=0; }
+  else if(edge<0.5){ x=Math.random()*w; y=h; }
+  else if(edge<0.75){ x=0; y=Math.random()*h; }
+  else { x=w; y=Math.random()*h; }
+  hallucShapes.push({
+    x, y, born:now, life: 1800+Math.random()*1800,
+    size: (0.06+Math.random()*0.10)*Math.min(w,h) * (0.5+intensity/100),
+    type: Math.random()<0.5?'blob':'silhouette',
+    drift: {x:(Math.random()-0.5)*0.4, y:(Math.random()-0.5)*0.4},
+    hue: 200+Math.random()*60
+  });
+}
+function drawHalluc(){
+  fxctx.clearRect(0,0,fxcanvas.width,fxcanvas.height);
+  if(!state.halluc.on) { hallucShapes=[]; return; }
+  spawnHalluc(state.halluc.frequency, state.halluc.intensity);
+  const now = performance.now();
+  hallucShapes = hallucShapes.filter(s=>now - s.born < s.life);
+  hallucShapes.forEach(s=>{
+    const age = (now-s.born)/s.life;
+    const fade = age<0.3? age/0.3 : age>0.7 ? (1-age)/0.3 : 1;
+    const alpha = fade * (0.15 + state.halluc.intensity/180);
+    s.x += s.drift.x; s.y += s.drift.y;
+    fxctx.save();
+    fxctx.globalAlpha = alpha;
+    if(s.type==='blob'){
+      const grad = fxctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.size);
+      grad.addColorStop(0, `hsla(${s.hue},30%,15%,0.9)`);
+      grad.addColorStop(1, `hsla(${s.hue},30%,15%,0)`);
+      fxctx.fillStyle = grad;
+      fxctx.beginPath(); fxctx.arc(s.x,s.y,s.size,0,7); fxctx.fill();
+    } else {
+      fxctx.fillStyle = `hsla(${s.hue},20%,8%,0.85)`;
+      fxctx.beginPath();
+      fxctx.ellipse(s.x, s.y, s.size*0.35, s.size*0.9, 0, 0, 7);
+      fxctx.fill();
+    }
+    fxctx.restore();
+  });
+}
+
+/* ---------- Fallback (pas de caméra) ---------- */
+let fallbackCanvas=null;
+function startFallback(){
+  overlay.style.display='none';
+  fallbackCanvas = document.createElement('canvas');
+  fallbackCanvas.width=640; fallbackCanvas.height=360;
+  const fctx = fallbackCanvas.getContext('2d');
+  fctx.fillStyle='#EDE9E1'; fctx.fillRect(0,0,640,360);
+  fctx.fillStyle='#1a1a1a'; fctx.fillRect(40,120,90,90);
+  fctx.fillStyle='#d9c3a3'; fctx.fillRect(55,135,25,60);
+  fctx.fillStyle='#5c4530'; fctx.fillRect(85,135,25,60);
+  fctx.fillStyle='#1a1a1a'; fctx.fillRect(275,120,90,90);
+  fctx.fillStyle='#1a1a1a'; fctx.fillRect(470,110,110,110);
+  fctx.fillStyle='#4a6b52'; fctx.beginPath(); fctx.ellipse(525,165,32,42,0,0,7); fctx.fill();
+  startRenderLoop(true);
+}
+
+/* ---------- Boucle de rendu ---------- */
+let started = false;
+function startRenderLoop(useFallback){
+  if(started) return; started = true;
+  let lastCopy = 0;
+
+  function frame(t){
+    requestAnimationFrame(frame);
+    const src = useFallback ? fallbackCanvas : video;
+    if(!useFallback && video.readyState < 2) return;
+
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+
+    if(t - lastCopy > 90){ // rafraîchit le buffer "retardé" ~11x/s
+      gl.bindTexture(gl.TEXTURE_2D, prevTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+      lastCopy = t;
+    }
+
+    const vw = useFallback?640:(video.videoWidth||16);
+    const vh = useFallback?360:(video.videoHeight||9);
+    const videoAR = vw/vh, canvasAR = glcanvas.width/glcanvas.height;
+    let ax=1, ay=1;
+    if(canvasAR > videoAR) ay = canvasAR/videoAR; else ax = videoAR/canvasAR;
+
+    gl.useProgram(prog);
+    gl.uniform1f(U.uTime, t*0.001);
+    gl.uniform2f(U.uAspectFix, ax, ay);
+
+    gl.uniform1f(U.uBlurOn, state.blur.on?1:0);
+    gl.uniform1f(U.uBlurIntensity, state.blur.intensity/100);
+    gl.uniform1f(U.uBlurDiameter, 1-state.blur.diameter/100);
+
+    gl.uniform1f(U.uTunnelOn, state.tunnel.on?1:0);
+    gl.uniform1f(U.uTunnelDiameter, 1-state.tunnel.diameter/100);
+    gl.uniform1f(U.uTunnelOpacity, state.tunnel.opacity/100);
+    gl.uniform1f(U.uTunnelSoftness, state.tunnel.softness/100);
+
+    gl.uniform1f(U.uContrastOn, state.contrast.on?1:0);
+    gl.uniform1f(U.uContrastAmt, state.contrast.contrast/100);
+    gl.uniform1f(U.uSaturationAmt, state.contrast.saturation/100);
+
+    gl.uniform1f(U.uDistortOn, state.distort.on?1:0);
+    gl.uniform1f(U.uDistortAmp, state.distort.amplitude/100);
+    gl.uniform1f(U.uDistortSpeed, state.distort.speed/100);
+
+    gl.uniform1f(U.uLatencyOn, state.latency.on?1:0);
+    gl.uniform1f(U.uLatencyLag, state.latency.lag/100);
+    gl.uniform1f(U.uLatencyTremor, state.latency.tremor/100);
+
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, prevTex); gl.uniform1i(U.uPrevTex,1);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    drawHalluc();
+  }
+  requestAnimationFrame(frame);
+}
+
+applyStagePreset(15);
+</script>
+</body>
+</html>
