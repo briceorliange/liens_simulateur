@@ -219,6 +219,7 @@
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
+        <div class="sub-row"><label>Global 0/1</label><input type="range" class="fx-sub" data-k="global" min="0" max="1" value="1"></div>
         <div class="sub-row"><label>Retard</label><input type="range" class="fx-sub" data-k="delay" min="0" max="100" value="55"></div>
         <div class="sub-row"><label>Taille zone</label><input type="range" class="fx-sub" data-k="size" min="0" max="100" value="55"></div>
         <div class="sub-row"><label>Décalage X</label><input type="range" class="fx-sub" data-k="offX" min="0" max="100" value="50"></div>
@@ -297,7 +298,7 @@ const state = {
   fog:      { on:false, ghost:35, sharpness:40 },
   halluc:   { on:false, frequency:35, intensity:50 },
   distort:  { on:false, amplitude:30, speed:25 },
-  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0 }
+  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 }
 };
 
 /* ---------- Presets par stade (0-100) ---------- */
@@ -656,7 +657,7 @@ function startRenderLoop(useFallback){
   // Buffer temporel : on garde les dernières frames avec leur horodatage,
   // et on affiche la frame correspondant à "maintenant moins le retard voulu".
   // C'est un vrai décalage (comme un flux vidéo en retard), pas un fondu.
-  const RING_SIZE = 90;
+  const RING_SIZE = 60;
   let ring = null;
   function ensureRing(w, h){
     if(ring && ring.w===w && ring.h===h) return;
@@ -699,7 +700,13 @@ function startRenderLoop(useFallback){
   let lastGoodTime = 0;
   let lastHandDetect = 0;
   function detectHands(t){
-    if(!handTrackingReady || useFallback || !state.latency.on){ handBoxes = []; lastGoodBoxes = []; return; }
+    if(!handTrackingReady || useFallback || !state.latency.on || state.latency.global > 0.5){
+      handBoxes = []; lastGoodBoxes = [];
+      if(handStatusEl && state.latency.on && state.latency.global > 0.5){
+        handStatusEl.style.display=''; handStatusEl.textContent='· mode global'; handStatusEl.style.color='var(--accent)';
+      }
+      return;
+    }
     if(t - lastHandDetect < 60) return; // ~16 détections/s
     lastHandDetect = t;
     try{
@@ -742,7 +749,7 @@ function startRenderLoop(useFallback){
   const handPatchCtx = handPatchCanvas.getContext('2d');
 
   function drawHandLag(t, ax, ay){
-    if(!state.latency.on || handBoxes.length===0 || !ring) return;
+    if(!state.latency.on || state.latency.global > 0.5 || handBoxes.length===0 || !ring) return;
     const delayMs = 220 + (state.latency.delay/100) * 700; // 0,22s à 0,92s : toujours perceptible
     const delayed = findDelayedSlot(t, delayMs);
     if(!delayed) return;
@@ -767,7 +774,7 @@ function startRenderLoop(useFallback){
       handPatchCtx.drawImage(delayed.canvas, cropX, cropY, cropW, cropH, 0, 0, handPatchCanvas.width, handPatchCanvas.height);
       // Contour dégradé pour fondre le patch dans le reste de l'image
       handPatchCtx.globalCompositeOperation = 'destination-in';
-      const grad = handPatchCtx.createRadialGradient(110,110,40, 110,110,110);
+      const grad = handPatchCtx.createRadialGradient(110,110,78, 110,110,110);
       grad.addColorStop(0,'rgba(0,0,0,1)');
       grad.addColorStop(1,'rgba(0,0,0,0)');
       handPatchCtx.fillStyle = grad;
@@ -792,7 +799,7 @@ function startRenderLoop(useFallback){
     const vw = useFallback?640:(video.videoWidth||16);
     const vh = useFallback?360:(video.videoHeight||9);
 
-    const RING_W = 240;
+    const RING_W = 480;
     const RING_H = Math.max(1, Math.round(RING_W * vh/vw));
     ensureRing(RING_W, RING_H);
 
@@ -802,7 +809,13 @@ function startRenderLoop(useFallback){
     ring.write = (ring.write+1) % RING_SIZE;
     ring.filled = Math.min(RING_SIZE, ring.filled+1);
 
-    let uploadSrc = src; // le fond (tête, décor) reste toujours en temps réel
+    let uploadSrc = src; // par défaut : temps réel
+    if(state.latency.on && state.latency.global > 0.5){
+      // Mode global : toute l'image est en retard (effet fort, y compris les mains)
+      const delayMs = 220 + (state.latency.delay/100) * 700;
+      const delayed = findDelayedSlot(t, delayMs);
+      if(delayed) uploadSrc = delayed.canvas;
+    }
 
     gl.bindTexture(gl.TEXTURE_2D, videoTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uploadSrc);
