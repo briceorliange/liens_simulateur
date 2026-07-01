@@ -215,12 +215,15 @@
 
     <div class="effect" data-effect="latency">
       <div class="effect-head">
-        <span class="name">Retard de préhension (attraper / serrer une main)</span>
+        <span class="name">Retard de préhension (mains uniquement) <span id="hand-status" style="color:var(--accent-warn); font-family:'IBM Plex Mono',monospace; font-size:9px;">· chargement…</span></span>
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
-        <div class="sub-row"><label>Retard</label><input type="range" class="fx-sub" data-k="lag" min="0" max="100" value="40"></div>
-        <div class="sub-row"><label>Tremblement</label><input type="range" class="fx-sub" data-k="tremor" min="0" max="100" value="25"></div>
+        <div class="sub-row"><label>Retard</label><input type="range" class="fx-sub" data-k="delay" min="0" max="100" value="55"></div>
+        <div class="sub-row"><label>Taille zone</label><input type="range" class="fx-sub" data-k="size" min="0" max="100" value="55"></div>
+        <div class="sub-row"><label>Décalage X</label><input type="range" class="fx-sub" data-k="offX" min="0" max="100" value="50"></div>
+        <div class="sub-row"><label>Décalage Y</label><input type="range" class="fx-sub" data-k="offY" min="0" max="100" value="50"></div>
+        <div class="sub-row"><label>Miroir X</label><input type="range" class="fx-sub" data-k="mirror" min="0" max="1" value="0"></div>
       </div>
     </div>
 
@@ -294,7 +297,7 @@ const state = {
   fog:      { on:false, ghost:35, sharpness:40 },
   halluc:   { on:false, frequency:35, intensity:50 },
   distort:  { on:false, amplitude:30, speed:25 },
-  latency:  { on:false, lag:40, tremor:25 }
+  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0 }
 };
 
 /* ---------- Presets par stade (0-100) ---------- */
@@ -309,7 +312,7 @@ function applyStagePreset(v){
   state.fog.on = t > 0.3;        state.fog.ghost = Math.max(0,(t-0.25)*60); state.fog.sharpness = Math.max(0,(t-0.25)*50);
   state.halluc.on = t > 0.45;    state.halluc.frequency = Math.max(0,(t-0.4)*80); state.halluc.intensity = 30+t*60;
   state.distort.on = t > 0.35;   state.distort.amplitude = Math.max(0,(t-0.3)*60); state.distort.speed = 15+t*40;
-  state.latency.on = t > 0.25;   state.latency.lag = Math.max(0,(t-0.2)*70); state.latency.tremor = Math.max(0,(t-0.2)*50);
+  state.latency.on = t > 0.25;   state.latency.delay = Math.max(0,(t-0.2)*70);
   syncUIFromState();
 }
 
@@ -430,8 +433,6 @@ uniform float uDimOn, uDimAmt;
 uniform float uFogOn, uFogGhost, uFogSharpness;
 // Distorsion
 uniform float uDistortOn, uDistortAmp, uDistortSpeed;
-// Latence
-uniform float uLatencyOn, uLatencyLag, uLatencyTremor;
 
 vec2 fitUv(vec2 uv){
   vec2 c = (uv-0.5)*uAspectFix + 0.5;
@@ -455,12 +456,6 @@ void main(){
     float sp = uDistortSpeed * 1.5;
     uv.x += sin(uv.y*10.0 + uTime*sp) * amp;
     uv.y += cos(uv.x*10.0 + uTime*sp*0.8) * amp * 0.7;
-  }
-
-  // --- Tremblement (latence) ---
-  if(uLatencyOn > 0.5){
-    float trem = uLatencyTremor * 0.004;
-    uv += vec2(sin(uTime*14.0), cos(uTime*11.0)) * trem;
   }
 
   // --- Vision instable : oscillation + respiration de l'image ---
@@ -582,7 +577,6 @@ const U = {};
  'uDimOn','uDimAmt',
  'uFogOn','uFogGhost','uFogSharpness',
  'uDistortOn','uDistortAmp','uDistortSpeed',
- 'uLatencyOn','uLatencyLag','uLatencyTremor',
  'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 
 /* ---------- Hallucinations (calque 2D) ---------- */
@@ -675,6 +669,108 @@ function startRenderLoop(useFallback){
     ring = {slots, write:0, filled:0, w, h};
   }
 
+  // --- Suivi des mains (MediaPipe Tasks Vision, chargé depuis un CDN, calcul sur l'appareil) ---
+  let handLandmarker = null, handTrackingReady = false;
+  const handStatusEl = document.getElementById('hand-status');
+  (async () => {
+    try{
+      const visionMod = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14');
+      const fileset = await visionMod.FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+      );
+      handLandmarker = await visionMod.HandLandmarker.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO',
+        numHands: 2
+      });
+      handTrackingReady = true;
+      if(handStatusEl) handStatusEl.style.display = 'none';
+    }catch(e){
+      console.warn('Suivi des mains indisponible :', e);
+      if(handStatusEl) handStatusEl.textContent = '· indisponible';
+    }
+  })();
+
+  let handBoxes = [];
+  let lastHandDetect = 0;
+  function detectHands(t){
+    if(!handTrackingReady || useFallback || !state.latency.on){ handBoxes = []; return; }
+    if(t - lastHandDetect < 70) return; // ~14 détections/s, suffisant et léger pour le mobile
+    lastHandDetect = t;
+    try{
+      const res = handLandmarker.detectForVideo(video, t);
+      handBoxes = (res.landmarks||[]).map(lm=>{
+        let minX=1,minY=1,maxX=0,maxY=0;
+        lm.forEach(p=>{ minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); });
+        const pad=0.05;
+        return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, w:(maxX-minX)+pad*2, h:(maxY-minY)+pad*2 };
+      });
+    }catch(e){ /* frame transitoire ignorée */ }
+  }
+
+  // Retrouve, dans le buffer temporel, l'image la plus proche de "maintenant moins delayMs"
+  function findDelayedSlot(t, delayMs){
+    if(!ring || ring.filled < 2) return null;
+    const targetT = t - delayMs;
+    let idx = (ring.write - 1 + RING_SIZE) % RING_SIZE;
+    for(let i=0; i<ring.filled; i++){
+      const cand = ring.slots[idx];
+      if(cand.t >= 0 && cand.t <= targetT) return cand;
+      idx = (idx - 1 + RING_SIZE) % RING_SIZE;
+    }
+    return ring.slots[idx];
+  }
+
+  const handPatchCanvas = document.createElement('canvas');
+  handPatchCanvas.width = 220; handPatchCanvas.height = 220;
+  const handPatchCtx = handPatchCanvas.getContext('2d');
+
+  function drawHandLag(t, ax, ay){
+    if(!state.latency.on || handBoxes.length===0 || !ring) return;
+    const delayMs = (state.latency.delay/100) * 900;
+    const delayed = findDelayedSlot(t, delayMs);
+    if(!delayed) return;
+
+    const scaleFactor = 0.7 + (state.latency.size/100)*1.5;
+    const offX = (state.latency.offX-50)/100*0.3;
+    const offY = (state.latency.offY-50)/100*0.3;
+    const mirror = state.latency.mirror > 0.5;
+
+    handBoxes.forEach(box=>{
+      let cx = box.cx + offX;
+      const cy = box.cy + offY;
+      if(mirror) cx = 1 - cx;
+
+      // Zone source dans le buffer retardé (même repère que la vidéo)
+      const cropW = Math.min(1, box.w*scaleFactor) * ring.w;
+      const cropH = Math.min(1, box.h*scaleFactor) * ring.h;
+      const cropX = cx*ring.w - cropW/2;
+      const cropY = cy*ring.h - cropH/2;
+
+      handPatchCtx.clearRect(0,0,handPatchCanvas.width,handPatchCanvas.height);
+      handPatchCtx.drawImage(delayed.canvas, cropX, cropY, cropW, cropH, 0, 0, handPatchCanvas.width, handPatchCanvas.height);
+      // Contour dégradé pour fondre le patch dans le reste de l'image
+      handPatchCtx.globalCompositeOperation = 'destination-in';
+      const grad = handPatchCtx.createRadialGradient(110,110,40, 110,110,110);
+      grad.addColorStop(0,'rgba(0,0,0,1)');
+      grad.addColorStop(1,'rgba(0,0,0,0)');
+      handPatchCtx.fillStyle = grad;
+      handPatchCtx.fillRect(0,0,220,220);
+      handPatchCtx.globalCompositeOperation = 'source-over';
+
+      // Position à l'écran : conversion du repère vidéo (y vers le bas) vers le repère canvas
+      const vyUp = 1 - cy;
+      const screenX = ((cx-0.5)/ax + 0.5) * fxcanvas.width;
+      const screenY = (0.5 - (vyUp-0.5)/ay) * fxcanvas.height;
+      const destSize = Math.max(box.w/ax, box.h/ay) * fxcanvas.width * scaleFactor * 1.3;
+
+      fxctx.drawImage(handPatchCanvas, screenX-destSize/2, screenY-destSize/2, destSize, destSize);
+    });
+  }
+
   function frame(t){
     requestAnimationFrame(frame);
     const src = useFallback ? fallbackCanvas : video;
@@ -693,21 +789,7 @@ function startRenderLoop(useFallback){
     ring.write = (ring.write+1) % RING_SIZE;
     ring.filled = Math.min(RING_SIZE, ring.filled+1);
 
-    let uploadSrc = src;
-    if(state.latency.on){
-      const delayMs = (state.latency.lag/100) * 900; // jusqu'à 0.9s de retard
-      if(delayMs > 15 && ring.filled > 1){
-        const targetT = t - delayMs;
-        let idx = (ring.write - 1 + RING_SIZE) % RING_SIZE;
-        let found = ring.slots[idx];
-        for(let i=0; i<ring.filled; i++){
-          const cand = ring.slots[idx];
-          if(cand.t >= 0 && cand.t <= targetT){ found = cand; break; }
-          idx = (idx - 1 + RING_SIZE) % RING_SIZE;
-        }
-        uploadSrc = found.canvas;
-      }
-    }
+    let uploadSrc = src; // le fond (tête, décor) reste toujours en temps réel
 
     gl.bindTexture(gl.TEXTURE_2D, videoTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uploadSrc);
@@ -752,15 +834,13 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uDistortAmp, state.distort.amplitude/100);
     gl.uniform1f(U.uDistortSpeed, state.distort.speed/100);
 
-    gl.uniform1f(U.uLatencyOn, state.latency.on?1:0);
-    gl.uniform1f(U.uLatencyLag, state.latency.lag/100);
-    gl.uniform1f(U.uLatencyTremor, state.latency.tremor/100);
-
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
+    detectHands(t);
     drawHalluc();
+    drawHandLag(t, ax, ay);
   }
   requestAnimationFrame(frame);
 }
