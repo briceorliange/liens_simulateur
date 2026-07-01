@@ -411,7 +411,6 @@ in vec2 vUv;
 out vec4 outColor;
 
 uniform sampler2D uTex;
-uniform sampler2D uPrevTex;
 uniform float uTime;
 uniform vec2  uAspectFix; // scale to correct video aspect vs canvas
 
@@ -490,12 +489,6 @@ void main(){
       }
       col = mix(col, acc/n, mask);
     }
-  }
-
-  // --- Latence : vrai décalage temporel (préhension / poignée de main) ---
-  if(uLatencyOn > 0.5){
-    vec3 prev = texture(uPrevTex, clamp(fitUv(uv+vec2(0.01,0.0)),0.0,1.0)).rgb;
-    col = mix(col, prev, clamp(uLatencyLag * 0.95, 0.0, 0.9));
   }
 
   // --- Vision jaunâtre ---
@@ -579,7 +572,6 @@ function tex(){
   return t;
 }
 const videoTex = tex();
-const prevTex = tex();
 
 const U = {};
 ['uTime','uAspectFix','uBlurOn','uBlurIntensity','uBlurDiameter',
@@ -591,7 +583,7 @@ const U = {};
  'uFogOn','uFogGhost','uFogSharpness',
  'uDistortOn','uDistortAmp','uDistortSpeed',
  'uLatencyOn','uLatencyLag','uLatencyTremor',
- 'uTex','uPrevTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+ 'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 
 /* ---------- Hallucinations (calque 2D) ---------- */
 let hallucShapes = [];
@@ -666,24 +658,60 @@ function startFallback(){
 let started = false;
 function startRenderLoop(useFallback){
   if(started) return; started = true;
-  let lastCopy = 0;
+
+  // Buffer temporel : on garde les dernières frames avec leur horodatage,
+  // et on affiche la frame correspondant à "maintenant moins le retard voulu".
+  // C'est un vrai décalage (comme un flux vidéo en retard), pas un fondu.
+  const RING_SIZE = 90;
+  let ring = null;
+  function ensureRing(w, h){
+    if(ring && ring.w===w && ring.h===h) return;
+    const slots = [];
+    for(let i=0;i<RING_SIZE;i++){
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      slots.push({canvas:c, ctx:c.getContext('2d'), t:-1});
+    }
+    ring = {slots, write:0, filled:0, w, h};
+  }
 
   function frame(t){
     requestAnimationFrame(frame);
     const src = useFallback ? fallbackCanvas : video;
     if(!useFallback && video.readyState < 2) return;
 
-    gl.bindTexture(gl.TEXTURE_2D, videoTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
-
-    if(t - lastCopy > (60 + state.latency.lag*5.5)){ // plus le retard est fort, plus l'image affichée est "ancienne"
-      gl.bindTexture(gl.TEXTURE_2D, prevTex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
-      lastCopy = t;
-    }
-
     const vw = useFallback?640:(video.videoWidth||16);
     const vh = useFallback?360:(video.videoHeight||9);
+
+    const RING_W = 240;
+    const RING_H = Math.max(1, Math.round(RING_W * vh/vw));
+    ensureRing(RING_W, RING_H);
+
+    const slot = ring.slots[ring.write];
+    slot.ctx.drawImage(src, 0, 0, RING_W, RING_H);
+    slot.t = t;
+    ring.write = (ring.write+1) % RING_SIZE;
+    ring.filled = Math.min(RING_SIZE, ring.filled+1);
+
+    let uploadSrc = src;
+    if(state.latency.on){
+      const delayMs = (state.latency.lag/100) * 900; // jusqu'à 0.9s de retard
+      if(delayMs > 15 && ring.filled > 1){
+        const targetT = t - delayMs;
+        let idx = (ring.write - 1 + RING_SIZE) % RING_SIZE;
+        let found = ring.slots[idx];
+        for(let i=0; i<ring.filled; i++){
+          const cand = ring.slots[idx];
+          if(cand.t >= 0 && cand.t <= targetT){ found = cand; break; }
+          idx = (idx - 1 + RING_SIZE) % RING_SIZE;
+        }
+        uploadSrc = found.canvas;
+      }
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uploadSrc);
+
     const videoAR = vw/vh, canvasAR = glcanvas.width/glcanvas.height;
     let ax=1, ay=1;
     if(canvasAR > videoAR) ay = canvasAR/videoAR; else ax = videoAR/canvasAR;
@@ -729,7 +757,6 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uLatencyTremor, state.latency.tremor/100);
 
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, prevTex); gl.uniform1i(U.uPrevTex,1);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
