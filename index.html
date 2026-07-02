@@ -231,6 +231,29 @@
       </div>
     </div>
 
+    <div class="effect" data-effect="depth">
+      <div class="effect-head">
+        <span class="name">Distances &amp; préhension (diplopie)</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Dédoublement</label><input type="range" class="fx-sub" data-k="separation" min="0" max="100" value="45"></div>
+        <div class="sub-row"><label>Erreur taille</label><input type="range" class="fx-sub" data-k="scale" min="0" max="100" value="40"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="face">
+      <div class="effect-head">
+        <span class="name">Visages (flou de loin, déformation de près) <span id="face-status" style="color:var(--accent-warn); font-family:'IBM Plex Mono',monospace; font-size:9px;">· chargement…</span></span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Seuil proche</label><input type="range" class="fx-sub" data-k="threshold" min="0" max="100" value="45"></div>
+        <div class="sub-row"><label>Flou (loin)</label><input type="range" class="fx-sub" data-k="blur" min="0" max="100" value="55"></div>
+        <div class="sub-row"><label>Déform. (près)</label><input type="range" class="fx-sub" data-k="warp" min="0" max="100" value="55"></div>
+      </div>
+    </div>
+
     <h2>Effets complémentaires</h2>
 
     <div class="effect" data-effect="tint">
@@ -301,7 +324,9 @@ const state = {
   fog:      { on:false, ghost:35, sharpness:40 },
   halluc:   { on:false, frequency:35, intensity:50 },
   distort:  { on:false, amplitude:30, speed:25 },
-  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 }
+  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 },
+  depth:    { on:false, separation:45, scale:40 },
+  face:     { on:false, threshold:45, blur:55, warp:55 }
 };
 
 /* ---------- Presets par stade (0-100) ---------- */
@@ -317,6 +342,8 @@ function applyStagePreset(v){
   state.halluc.on = t > 0.45;    state.halluc.frequency = Math.max(0,(t-0.4)*80); state.halluc.intensity = 30+t*60;
   state.distort.on = t > 0.35;   state.distort.amplitude = Math.max(0,(t-0.3)*60); state.distort.speed = 15+t*40;
   state.latency.on = t > 0.25;   state.latency.delay = Math.max(0,(t-0.2)*70);
+  state.depth.on = t > 0.3;      state.depth.separation = Math.max(0,(t-0.25)*70); state.depth.scale = Math.max(0,(t-0.25)*60);
+  state.face.on = t > 0.2;       state.face.threshold = 45; state.face.blur = 20+t*60; state.face.warp = Math.max(0,(t-0.3)*80);
   syncUIFromState();
 }
 
@@ -704,7 +731,8 @@ function startRenderLoop(useFallback){
   let lastGoodTime = 0;
   let lastHandDetect = 0;
   function detectHands(t){
-    if(!handTrackingReady || useFallback || !state.latency.on || state.latency.global > 0.5){
+    const wantHands = (state.latency.on && state.latency.global <= 0.5) || state.depth.on;
+    if(!handTrackingReady || useFallback || !wantHands){
       handBoxes = []; lastGoodBoxes = [];
       if(handStatusEl && state.latency.on && state.latency.global > 0.5){
         handStatusEl.style.display=''; handStatusEl.textContent='· mode global'; handStatusEl.style.color='var(--accent)';
@@ -795,6 +823,149 @@ function startRenderLoop(useFallback){
     });
   }
 
+  /* ---------- Suivi des visages (MediaPipe FaceDetector, sur l'appareil) ---------- */
+  let faceDetector = null, faceTrackingReady = false;
+  const faceStatusEl = document.getElementById('face-status');
+  (async () => {
+    try{
+      const vmod = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14');
+      const fset = await vmod.FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+      );
+      faceDetector = await vmod.FaceDetector.createFromOptions(fset, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO'
+      });
+      faceTrackingReady = true;
+      if(faceStatusEl) faceStatusEl.textContent = '· prêt';
+    }catch(e){
+      console.warn('Suivi des visages indisponible :', e);
+      if(faceStatusEl) faceStatusEl.textContent = '· indisponible';
+    }
+  })();
+
+  let faceBoxes = [];
+  let lastFaceGood = [], lastFaceGoodT = 0, lastFaceDetect = 0;
+  function detectFaces(t){
+    if(!faceTrackingReady || useFallback || !state.face.on){
+      faceBoxes = []; lastFaceGood = []; return;
+    }
+    if(t - lastFaceDetect < 90) return; // ~11 détections/s
+    lastFaceDetect = t;
+    try{
+      const res = faceDetector.detectForVideo(video, t);
+      const vw = video.videoWidth||1, vh = video.videoHeight||1;
+      const boxes = (res.detections||[]).map(d=>{
+        const b = d.boundingBox;
+        return { cx:(b.originX+b.width/2)/vw, cy:(b.originY+b.height/2)/vh, w:b.width/vw, h:b.height/vh };
+      });
+      if(boxes.length>0){ lastFaceGood = boxes; lastFaceGoodT = t; }
+    }catch(e){ /* frame transitoire ignorée */ }
+    // persistance ~400ms pour lisser les décrochages
+    if(t - lastFaceGoodT < 400) faceBoxes = lastFaceGood;
+    else { faceBoxes = []; lastFaceGood = []; }
+    if(faceStatusEl){
+      faceStatusEl.textContent = faceBoxes.length>0 ? ('· '+faceBoxes.length+' visage'+(faceBoxes.length>1?'s':'')+' ✓') : '· cherche un visage…';
+      faceStatusEl.style.color = faceBoxes.length>0 ? 'var(--accent)' : 'var(--accent-warn)';
+    }
+  }
+
+  // Repère vidéo (MediaPipe) -> repère écran, identique au calcul des mains
+  function videoNormToScreen(cx, cy, ax, ay){
+    const vyUp = 1 - cy;
+    return {
+      x: ((cx-0.5)/ax + 0.5) * fxcanvas.width,
+      y: (0.5 - (vyUp-0.5)/ay) * fxcanvas.height
+    };
+  }
+
+  const facePatch = document.createElement('canvas'); facePatch.width=256; facePatch.height=256;
+  const facePatchCtx = facePatch.getContext('2d');
+  const faceOut = document.createElement('canvas'); faceOut.width=256; faceOut.height=256;
+  const faceOutCtx = faceOut.getContext('2d');
+
+  function drawFaces(t, ax, ay){
+    if(!state.face.on || faceBoxes.length===0 || useFallback || !video.videoWidth) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    // seuil : hauteur du visage (fraction de l'image) au-delà de laquelle on le considère "proche"
+    const nearThresh = 0.14 + (state.face.threshold/100) * 0.30;
+    const PW = facePatch.width, PH = facePatch.height;
+    faceBoxes.forEach(f=>{
+      const sw = f.w*vw, sh = f.h*vh;
+      if(sw<4||sh<4) return;
+      const mx = sw*0.25, my = sh*0.25;                 // marge autour du visage
+      const sx = (f.cx-f.w/2)*vw - mx, sy = (f.cy-f.h/2)*vh - my;
+      facePatchCtx.clearRect(0,0,PW,PH);
+      facePatchCtx.drawImage(video, sx, sy, sw+2*mx, sh+2*my, 0,0,PW,PH);
+
+      faceOutCtx.clearRect(0,0,PW,PH);
+      const near = f.h >= nearThresh;
+      if(near){
+        // --- Déformation (visage proche, ex. personne debout vue en contre-plongée) ---
+        const amp = (state.face.warp/100) * PW * 0.10;
+        const slices = 26, sliceH = PH/slices;
+        for(let i=0;i<slices;i++){
+          const off = Math.sin(t*0.0022 + i*0.55)*amp + Math.sin(t*0.0013 + i*0.9)*amp*0.5;
+          const stretch = 1 + Math.sin(t*0.001 + i*0.3) * (state.face.warp/100)*0.12;
+          faceOutCtx.drawImage(facePatch, 0, i*sliceH, PW, sliceH,
+                               (PW*(1-stretch))/2 + off, i*sliceH, PW*stretch, sliceH+1);
+        }
+      } else {
+        // --- Flou (visage lointain) ---
+        const blurPx = 2 + (state.face.blur/100) * 14;
+        faceOutCtx.filter = 'blur('+blurPx.toFixed(1)+'px)';
+        faceOutCtx.drawImage(facePatch, 0,0,PW,PH);
+        faceOutCtx.filter = 'none';
+      }
+      // fondu elliptique pour intégrer le patch dans l'image
+      faceOutCtx.globalCompositeOperation = 'destination-in';
+      const g = faceOutCtx.createRadialGradient(PW/2,PH/2,PW*0.30, PW/2,PH/2,PW*0.5);
+      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+      faceOutCtx.fillStyle = g; faceOutCtx.fillRect(0,0,PW,PH);
+      faceOutCtx.globalCompositeOperation = 'source-over';
+
+      const p = videoNormToScreen(f.cx, f.cy, ax, ay);
+      const dW = Math.max(f.w/ax, f.h/ay) * fxcanvas.width * 1.5;
+      fxctx.drawImage(faceOut, p.x-dW/2, p.y-dW/2, dW, dW);
+    });
+  }
+
+  /* ---------- Diplopie / erreur de distance (sur les mains détectées) ---------- */
+  const depthPatch = document.createElement('canvas'); depthPatch.width=220; depthPatch.height=220;
+  const depthPatchCtx = depthPatch.getContext('2d');
+  function drawDepth(t, ax, ay){
+    if(!state.depth.on || handBoxes.length===0 || useFallback || !video.videoWidth) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const sepN = (state.depth.separation/100) * 0.05;      // dédoublement horizontal (repère écran)
+    const scaleErr = 1 + (state.depth.scale/100) * 0.6;    // fantôme mal dimensionné => distance faussée
+    const PW = depthPatch.width, PH = depthPatch.height;
+    handBoxes.forEach(box=>{
+      const sw = box.w*vw, sh = box.h*vh;
+      if(sw<4||sh<4) return;
+      depthPatchCtx.clearRect(0,0,PW,PH);
+      depthPatchCtx.drawImage(video, (box.cx-box.w/2)*vw, (box.cy-box.h/2)*vh, sw, sh, 0,0,PW,PH);
+      depthPatchCtx.globalCompositeOperation = 'destination-in';
+      const g = depthPatchCtx.createRadialGradient(PW/2,PH/2,PW*0.28, PW/2,PH/2,PW*0.5);
+      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+      depthPatchCtx.fillStyle = g; depthPatchCtx.fillRect(0,0,PW,PH);
+      depthPatchCtx.globalCompositeOperation = 'source-over';
+
+      const p = videoNormToScreen(box.cx, box.cy, ax, ay);
+      const dW = Math.max(box.w/ax, box.h/ay) * fxcanvas.width * 1.3;
+      const dx = sepN * fxcanvas.width;
+      fxctx.save();
+      fxctx.globalAlpha = 0.55;                            // fantôme décalé (double image)
+      fxctx.drawImage(depthPatch, p.x-dW/2+dx, p.y-dW/2, dW, dW);
+      fxctx.globalAlpha = 0.45;                            // fantôme redimensionné (mauvaise distance)
+      const dW2 = dW*scaleErr;
+      fxctx.drawImage(depthPatch, p.x-dW2/2-dx, p.y-dW2/2, dW2, dW2);
+      fxctx.restore();
+    });
+  }
+
   function frame(t){
     requestAnimationFrame(frame);
     const src = useFallback ? fallbackCanvas : video;
@@ -880,8 +1051,11 @@ function startRenderLoop(useFallback){
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     detectHands(t);
-    drawHalluc();
-    drawHandLag(t, ax, ay);
+    detectFaces(t);
+    drawHalluc();          // efface le calque 2D puis dessine les hallucinations
+    drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
+    drawHandLag(t, ax, ay);// retard de préhension
+    drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
   }
   requestAnimationFrame(frame);
 }
