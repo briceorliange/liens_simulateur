@@ -116,6 +116,18 @@
     border-radius:9px; cursor:pointer; transition:0.15s;}
   .type-btn.active{background:rgba(73,198,176,0.18); color:var(--text); border-color:var(--accent);}
 
+  #tabbar{display:flex; gap:6px; margin-bottom:16px;}
+  .tab-btn{flex:1; font-family:'IBM Plex Sans',sans-serif; font-weight:600; font-size:12.5px; padding:10px 4px;
+    background:var(--surface-2); color:var(--muted); border:1px solid var(--line);
+    border-radius:10px; cursor:pointer;}
+  .tab-btn.active{background:var(--accent); color:#06201C; border-color:var(--accent);}
+
+  .seg-group{display:flex; gap:6px; margin:4px 0 8px;}
+  .seg-btn{flex:1; font-family:'IBM Plex Mono',monospace; font-size:9.5px; padding:6px 2px;
+    background:var(--surface-2); color:var(--muted); border:1px solid var(--line);
+    border-radius:7px; cursor:pointer;}
+  .seg-btn.active{background:rgba(73,198,176,0.18); color:var(--text); border-color:var(--accent);}
+
   #reset-row{display:flex; gap:10px; margin-top:16px;}
   #reset-row button{
     flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.04em;
@@ -153,6 +165,13 @@
 
   <div id="panel">
     <div class="grabber"></div>
+
+    <div id="tabbar">
+      <button class="tab-btn active" data-tab="demences">Démences</button>
+      <button class="tab-btn" data-tab="visuel">Troubles visuels</button>
+    </div>
+
+    <div id="tab-demences" class="tab-panel">
 
     <h2>Type de démence</h2>
     <div id="type-select" class="type-select">
@@ -312,6 +331,138 @@
       </div>
     </div>
 
+    </div><!-- /tab-demences -->
+
+    <div id="tab-troubles" class="tab-panel" style="display:none">
+
+    <h2>Acuité &amp; lumière</h2>
+
+    <div class="effect" data-effect="acuity">
+      <div class="effect-head">
+        <span class="name">Diminution de l'acuité visuelle</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="40"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="photo">
+      <div class="effect-head">
+        <span class="name">Photophobie</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="50"></div>
+      </div>
+    </div>
+
+    <h2>Perte de champ visuel</h2>
+
+    <div class="effect" data-effect="eye">
+      <div class="effect-head">
+        <span class="name">Perte d'un œil</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="seg-group" data-effect="eye" data-key="side">
+          <button class="seg-btn active" data-val="0">Œil gauche</button>
+          <button class="seg-btn" data-val="1">Œil droit</button>
+        </div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="70"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="hemianopsia">
+      <div class="effect-head">
+        <span class="name">Hémianopsie</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="seg-group" data-effect="hemianopsia" data-key="side">
+          <button class="seg-btn active" data-val="0">Champ gauche</button>
+          <button class="seg-btn" data-val="1">Champ droit</button>
+        </div>
+        <div class="sub-row"><label>Netteté bord</label><input type="range" class="fx-sub" data-k="softness" min="0" max="100" value="20"></div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="opacity" min="0" max="100" value="90"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="quadranopsia">
+      <div class="effect-head">
+        <span class="name">Quadranopsie</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="seg-group" data-effect="quadranopsia" data-key="quad">
+          <button class="seg-btn active" data-val="0">Haut-G</button>
+          <button class="seg-btn" data-val="1">Haut-D</button>
+          <button class="seg-btn" data-val="2">Bas-G</button>
+          <button class="seg-btn" data-val="3">Bas-D</button>
+        </div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="opacity" min="0" max="100" value="90"></div>
+      </div>
+    </div>
+
+    <h2>Pathologies oculaires</h2>
+
+    <div class="effect" data-effect="dmla">
+      <div class="effect-head">
+        <span class="name">DMLA (scotome central)</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="35"></div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="60"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="cataract">
+      <div class="effect-head">
+        <span class="name">Cataracte</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="50"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="glaucoma">
+      <div class="effect-head">
+        <span class="name">Glaucome</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="55"></div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="opacity" min="0" max="100" value="85"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="retinitis">
+      <div class="effect-head">
+        <span class="name">Rétinite pigmentaire</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="30"></div>
+        <div class="sub-row"><label>Vision nocturne</label><input type="range" class="fx-sub" data-k="dim" min="0" max="100" value="60"></div>
+      </div>
+    </div>
+
+    <div class="effect" data-effect="retinopathy">
+      <div class="effect-head">
+        <span class="name">Rétinopathie (scotomes)</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Quantité</label><input type="range" class="fx-sub" data-k="count" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Taille</label><input type="range" class="fx-sub" data-k="size" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="60"></div>
+      </div>
+    </div>
+
+    </div><!-- /tab-troubles -->
+
     <div id="reset-row">
       <button id="btn-reset">Réinitialiser</button>
       <button id="btn-allon">Tout activer</button>
@@ -339,8 +490,24 @@ const state = {
   distort:  { on:false, amplitude:30, speed:25 },
   latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 },
   depth:    { on:false, separation:45, scale:40 },
-  face:     { on:false, threshold:45, blur:55, warp:55 }
+  face:     { on:false, threshold:45, blur:55, warp:55 },
+
+  /* --- Troubles visuels (hors démence, cumulables) --- */
+  acuity:      { on:false, amount:40 },
+  photo:       { on:false, amount:50 },
+  eye:         { on:false, side:0, amount:70 },
+  hemianopsia: { on:false, side:0, softness:20, opacity:90 },
+  quadranopsia:{ on:false, quad:0, opacity:90 },
+  dmla:        { on:false, diameter:35, intensity:60 },
+  cataract:    { on:false, amount:50 },
+  glaucoma:    { on:false, diameter:55, opacity:85 },
+  retinitis:   { on:false, diameter:30, dim:60 },
+  retinopathy: { on:false, count:40, size:40, intensity:60 }
 };
+
+const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face'];
+const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy'];
+let currentTab = 'demences';
 
 /* ---------- Profils cliniques ----------
    Pour chaque effet : w = poids (dose), thr = seuil d'apparition (fraction du stade).
@@ -402,6 +569,11 @@ function syncUIFromState(){
       if(k in s){ inp.value = s[k]; }
     });
   });
+  document.querySelectorAll('.seg-group').forEach(g=>{
+    const eff = g.dataset.effect, key = g.dataset.key;
+    const val = state[eff] ? state[eff][key] : 0;
+    g.querySelectorAll('.seg-btn').forEach(b=>b.classList.toggle('active', +b.dataset.val === val));
+  });
   const v = document.getElementById('stage-range').value;
   const tag = v<33?'LÉGER':v<66?'MODÉRÉ':'SÉVÈRE';
   const typeLbl = (DEMENTIA_PROFILES[currentType] ? DEMENTIA_PROFILES[currentType].label : '').toUpperCase();
@@ -421,23 +593,55 @@ document.querySelectorAll('.type-btn').forEach(btn=>{
   });
 });
 
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    currentTab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b===btn));
+    document.getElementById('tab-demences').style.display = currentTab==='demences' ? '' : 'none';
+    document.getElementById('tab-troubles').style.display = currentTab==='visuel' ? '' : 'none';
+  });
+});
+
+document.querySelectorAll('.seg-group').forEach(g=>{
+  const eff = g.dataset.effect, key = g.dataset.key;
+  g.querySelectorAll('.seg-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      state[eff][key] = +b.dataset.val;
+      g.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active', x===b));
+      if(eff==='retinopathy') scotomasDirty = true;
+    });
+  });
+});
+
 document.querySelectorAll('.effect').forEach(el=>{
   const key = el.dataset.effect;
   el.querySelector('.fx-toggle').addEventListener('change', e=>{
     state[key].on = e.target.checked;
     el.classList.toggle('on', e.target.checked);
+    if(key==='retinopathy') scotomasDirty = true;
   });
   el.querySelectorAll('.fx-sub').forEach(inp=>{
-    inp.addEventListener('input', e=>{ state[key][inp.dataset.k] = +e.target.value; });
+    inp.addEventListener('input', e=>{
+      state[key][inp.dataset.k] = +e.target.value;
+      if(key==='retinopathy') scotomasDirty = true;
+    });
   });
 });
 
 document.getElementById('btn-reset').addEventListener('click', ()=>{
-  document.getElementById('stage-range').value = 15;
-  applyStagePreset(15);
+  if(currentTab==='demences'){
+    document.getElementById('stage-range').value = 15;
+    applyStagePreset(15);
+  } else {
+    VISUEL_KEYS.forEach(k=>state[k].on = false);
+    scotomasDirty = true;
+    syncUIFromState();
+  }
 });
 document.getElementById('btn-allon').addEventListener('click', ()=>{
-  Object.keys(state).forEach(k=>state[k].on = true);
+  const keys = currentTab==='demences' ? DEMENTIA_KEYS : VISUEL_KEYS;
+  keys.forEach(k=>state[k].on = true);
+  scotomasDirty = true;
   syncUIFromState();
 });
 
@@ -517,6 +721,19 @@ uniform float uDimOn, uDimAmt;
 uniform float uFogOn, uFogGhost, uFogSharpness;
 // Distorsion
 uniform float uDistortOn, uDistortAmp, uDistortSpeed;
+// Acuité visuelle / photophobie
+uniform float uAcuityOn, uAcuityAmt;
+uniform float uPhotoOn, uPhotoAmt;
+// DMLA / cataracte
+uniform float uDmlaOn, uDmlaDiam, uDmlaAmt;
+uniform float uCataractOn, uCataractAmt;
+// Perte de champ visuel (œil / hémianopsie / quadranopsie)
+uniform float uEyeOn, uEyeSide, uEyeAmt;
+uniform float uHemiOn, uHemiSide, uHemiSoft, uHemiOpacity;
+uniform float uQuadOn, uQuad, uQuadOpacity;
+// Glaucome / rétinite pigmentaire
+uniform float uGlauOn, uGlauDiameter, uGlauOpacity;
+uniform float uRpOn, uRpDiameter, uRpDim;
 
 vec2 fitUv(vec2 uv){
   vec2 c = (uv-0.5)*uAspectFix + 0.5;
@@ -607,12 +824,112 @@ void main(){
     col *= (1.0 - uDimAmt*0.75);
   }
 
+  // --- Diminution de l'acuité visuelle (flou uniforme, sans mask) ---
+  if(uAcuityOn > 0.5){
+    float r = uAcuityAmt * 0.022;
+    vec3 acc = col; float n = 1.0;
+    for(int i=0;i<8;i++){
+      float a = float(i) * 0.785398;
+      vec2 o = vec2(cos(a), sin(a)) * r;
+      acc += sampleVideo(uv+o); n += 1.0;
+    }
+    col = mix(col, acc/n, uAcuityAmt);
+  }
+
+  // --- Photophobie : éblouissement + halo lumineux pulsant ---
+  if(uPhotoOn > 0.5){
+    float pulse = 0.6 + 0.15*sin(uTime*3.0);
+    col += vec3(uPhotoAmt * 0.55 * pulse);
+    float glow = smoothstep(0.55, 1.0, dot(col, vec3(0.333)));
+    col += glow * uPhotoAmt * 0.3;
+    col = clamp(col, 0.0, 1.0);
+  }
+
+  // --- DMLA : scotome central flouté et grisé ---
+  if(uDmlaOn > 0.5){
+    float d = uDmlaDiam * 0.4 + 0.02;
+    float feather = 0.15;
+    float mask = 1.0 - smoothstep(d-feather, d, dist);
+    if(mask > 0.001){
+      float r = uDmlaAmt * 0.022;
+      vec3 acc = col; float n = 1.0;
+      for(int i=0;i<8;i++){
+        float a = float(i) * 0.785398;
+        vec2 o = vec2(cos(a), sin(a)) * r;
+        acc += sampleVideo(uv+o); n += 1.0;
+      }
+      vec3 blurred = acc/n;
+      float g = dot(blurred, vec3(0.3,0.59,0.11));
+      vec3 grey = mix(blurred, vec3(g), 0.5) * 0.6;
+      col = mix(col, grey, mask * uDmlaAmt);
+    }
+  }
+
+  // --- Cataracte : film laiteux/jaunâtre + flou + perte de contraste ---
+  if(uCataractOn > 0.5){
+    float r = uCataractAmt * 0.018;
+    vec3 acc = col; float n = 1.0;
+    for(int i=0;i<8;i++){
+      float a = float(i) * 0.785398;
+      vec2 o = vec2(cos(a), sin(a)) * r;
+      acc += sampleVideo(uv+o); n += 1.0;
+    }
+    vec3 blurred = acc/n;
+    col = mix(col, blurred, uCataractAmt * 0.8);
+    vec3 haze = vec3(0.85, 0.80, 0.60);
+    col = mix(col, haze, uCataractAmt * 0.35);
+    float c = 1.0 - uCataractAmt * 0.5;
+    col = (col-0.5)*c + 0.5;
+  }
+
   // --- Vision tunnel ---
   if(uTunnelOn > 0.5){
     float d2 = uTunnelDiameter * 0.5 + 0.03;
     float soft = uTunnelSoftness * 0.3 + 0.02;
     float mask = smoothstep(d2-soft, d2+soft, dist);
     col = mix(col, vec3(0.0), mask * uTunnelOpacity);
+  }
+
+  // --- Glaucome : rétrécissement du champ périphérique ---
+  if(uGlauOn > 0.5){
+    float d2 = uGlauDiameter * 0.5 + 0.03;
+    float soft = uGlauDiameter * 0.15 + 0.02;
+    float mask = smoothstep(d2-soft, d2+soft, dist);
+    col = mix(col, vec3(0.0), mask * uGlauOpacity);
+  }
+
+  // --- Rétinite pigmentaire : champ tubulaire sévère + cécité nocturne ---
+  if(uRpOn > 0.5){
+    float d3 = uRpDiameter * 0.35 + 0.02;
+    float mask = smoothstep(d3-0.06, d3+0.06, dist);
+    col = mix(col, vec3(0.0), mask * 0.95);
+    col *= (1.0 - uRpDim * 0.6);
+  }
+
+  // --- Perte d'un œil : assombrissement d'un demi-champ ---
+  if(uEyeOn > 0.5){
+    float edge = uEyeSide < 0.5 ? uv.x : (1.0-uv.x);
+    float m = 1.0 - smoothstep(0.42, 0.58, edge);
+    col = mix(col, col*0.12, m * uEyeAmt);
+  }
+
+  // --- Hémianopsie : perte franche d'un demi-champ ---
+  if(uHemiOn > 0.5){
+    float edge = uHemiSide < 0.5 ? uv.x : (1.0-uv.x);
+    float soft = 0.04 + uHemiSoft * 0.25;
+    float m = 1.0 - smoothstep(0.5-soft, 0.5+soft, edge);
+    col = mix(col, vec3(0.0), m * uHemiOpacity);
+  }
+
+  // --- Quadranopsie : perte d'un quadrant du champ ---
+  if(uQuadOn > 0.5){
+    bool leftHalf = (uQuad < 0.5 || (uQuad > 1.5 && uQuad < 2.5));
+    bool topHalf  = (uQuad < 1.5);
+    float ex = leftHalf ? uv.x : (1.0-uv.x);
+    float ey = topHalf ? (1.0-uv.y) : uv.y;
+    float mx = 1.0 - smoothstep(0.42, 0.58, ex);
+    float my = 1.0 - smoothstep(0.42, 0.58, ey);
+    col = mix(col, vec3(0.0), mx*my * uQuadOpacity);
   }
 
   outColor = vec4(col, 1.0);
@@ -661,6 +978,13 @@ const U = {};
  'uDimOn','uDimAmt',
  'uFogOn','uFogGhost','uFogSharpness',
  'uDistortOn','uDistortAmp','uDistortSpeed',
+ 'uAcuityOn','uAcuityAmt','uPhotoOn','uPhotoAmt',
+ 'uDmlaOn','uDmlaDiam','uDmlaAmt','uCataractOn','uCataractAmt',
+ 'uEyeOn','uEyeSide','uEyeAmt',
+ 'uHemiOn','uHemiSide','uHemiSoft','uHemiOpacity',
+ 'uQuadOn','uQuad','uQuadOpacity',
+ 'uGlauOn','uGlauDiameter','uGlauOpacity',
+ 'uRpOn','uRpDiameter','uRpDim',
  'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 
 /* ---------- Hallucinations (calque 2D) ---------- */
@@ -715,7 +1039,42 @@ function drawHalluc(){
   });
 }
 
-/* ---------- Fallback (pas de caméra) ---------- */
+/* ---------- Scotomes (rétinopathie) : taches sombres fixes, régénérées à la demande ---------- */
+let scotomaShapes = [];
+let scotomasDirty = true;
+let scotomaDims = {w:0,h:0};
+function generateScotomas(){
+  const w = fxcanvas.width, h = fxcanvas.height;
+  scotomaDims = {w,h};
+  const n = Math.round(2 + (state.retinopathy.count/100) * 14);
+  scotomaShapes = [];
+  for(let i=0;i<n;i++){
+    scotomaShapes.push({
+      x: Math.random()*w,
+      y: Math.random()*h,
+      size: (0.03 + Math.random()*0.05) * Math.min(w,h) * (0.5 + state.retinopathy.size/100),
+      squish: 0.6 + Math.random()*0.8
+    });
+  }
+  scotomasDirty = false;
+}
+function drawScotomas(){
+  if(!state.retinopathy.on) return;
+  if(scotomasDirty || scotomaDims.w!==fxcanvas.width || scotomaDims.h!==fxcanvas.height) generateScotomas();
+  const alpha = 0.35 + (state.retinopathy.intensity/100) * 0.55;
+  scotomaShapes.forEach(s=>{
+    const grad = fxctx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.size);
+    grad.addColorStop(0, `rgba(5,5,5,${alpha})`);
+    grad.addColorStop(0.7, `rgba(5,5,5,${alpha*0.8})`);
+    grad.addColorStop(1, 'rgba(5,5,5,0)');
+    fxctx.save();
+    fxctx.fillStyle = grad;
+    fxctx.beginPath();
+    fxctx.ellipse(s.x, s.y, s.size, s.size*s.squish, 0, 0, 7);
+    fxctx.fill();
+    fxctx.restore();
+  });
+}
 let fallbackCanvas=null;
 function startFallback(){
   overlay.style.display='none';
@@ -1099,6 +1458,38 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uDistortAmp, state.distort.amplitude/100);
     gl.uniform1f(U.uDistortSpeed, state.distort.speed/100);
 
+    gl.uniform1f(U.uAcuityOn, state.acuity.on?1:0);
+    gl.uniform1f(U.uAcuityAmt, state.acuity.amount/100);
+    gl.uniform1f(U.uPhotoOn, state.photo.on?1:0);
+    gl.uniform1f(U.uPhotoAmt, state.photo.amount/100);
+
+    gl.uniform1f(U.uDmlaOn, state.dmla.on?1:0);
+    gl.uniform1f(U.uDmlaDiam, 1-state.dmla.diameter/100);
+    gl.uniform1f(U.uDmlaAmt, state.dmla.intensity/100);
+    gl.uniform1f(U.uCataractOn, state.cataract.on?1:0);
+    gl.uniform1f(U.uCataractAmt, state.cataract.amount/100);
+
+    gl.uniform1f(U.uEyeOn, state.eye.on?1:0);
+    gl.uniform1f(U.uEyeSide, state.eye.side);
+    gl.uniform1f(U.uEyeAmt, state.eye.amount/100);
+
+    gl.uniform1f(U.uHemiOn, state.hemianopsia.on?1:0);
+    gl.uniform1f(U.uHemiSide, state.hemianopsia.side);
+    gl.uniform1f(U.uHemiSoft, state.hemianopsia.softness/100);
+    gl.uniform1f(U.uHemiOpacity, state.hemianopsia.opacity/100);
+
+    gl.uniform1f(U.uQuadOn, state.quadranopsia.on?1:0);
+    gl.uniform1f(U.uQuad, state.quadranopsia.quad);
+    gl.uniform1f(U.uQuadOpacity, state.quadranopsia.opacity/100);
+
+    gl.uniform1f(U.uGlauOn, state.glaucoma.on?1:0);
+    gl.uniform1f(U.uGlauDiameter, 1-state.glaucoma.diameter/100);
+    gl.uniform1f(U.uGlauOpacity, state.glaucoma.opacity/100);
+
+    gl.uniform1f(U.uRpOn, state.retinitis.on?1:0);
+    gl.uniform1f(U.uRpDiameter, 1-state.retinitis.diameter/100);
+    gl.uniform1f(U.uRpDim, state.retinitis.dim/100);
+
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -1106,6 +1497,7 @@ function startRenderLoop(useFallback){
     detectHands(t);
     detectFaces(t);
     drawHalluc();          // efface le calque 2D puis dessine les hallucinations
+    drawScotomas();        // scotomes fixes (rétinopathie)
     drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
     drawHandLag(t, ax, ay);// retard de préhension
     drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
