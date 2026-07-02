@@ -110,6 +110,12 @@
   .sub-row{display:flex; align-items:center; gap:10px;}
   .sub-row label{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); width:64px; flex-shrink:0;}
 
+  .type-select{display:flex; gap:6px; margin-bottom:6px;}
+  .type-btn{flex:1; font-family:'IBM Plex Sans',sans-serif; font-size:11.5px; padding:8px 4px;
+    background:var(--surface-2); color:var(--muted); border:1px solid var(--line);
+    border-radius:9px; cursor:pointer; transition:0.15s;}
+  .type-btn.active{background:rgba(73,198,176,0.18); color:var(--text); border-color:var(--accent);}
+
   #reset-row{display:flex; gap:10px; margin-top:16px;}
   #reset-row button{
     flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.04em;
@@ -147,6 +153,13 @@
 
   <div id="panel">
     <div class="grabber"></div>
+
+    <h2>Type de démence</h2>
+    <div id="type-select" class="type-select">
+      <button class="type-btn active" data-type="alz">Alzheimer</button>
+      <button class="type-btn" data-type="lewy">Corps de Lewy</button>
+      <button class="type-btn" data-type="vasc">Vasculaire</button>
+    </div>
 
     <h2>Stade de la maladie</h2>
     <div class="stage-block">
@@ -329,21 +342,52 @@ const state = {
   face:     { on:false, threshold:45, blur:55, warp:55 }
 };
 
-/* ---------- Presets par stade (0-100) ---------- */
+/* ---------- Profils cliniques ----------
+   Pour chaque effet : w = poids (dose), thr = seuil d'apparition (fraction du stade).
+   Repères indicatifs, à faire valider par les neurologues/ophtalmologistes partenaires. */
+const DEMENTIA_PROFILES = {
+  alz: { label:'Alzheimer',
+    // atteintes visuo-perceptives : contrastes, profondeur, agnosie (visages), désorientation spatiale ; hallucinations rares/tardives
+    blur:{w:1.0,thr:0.05}, contrast:{w:1.3,thr:0.05}, tunnel:{w:0.8,thr:0.20},
+    tint:{w:0.9,thr:0.20}, face:{w:1.3,thr:0.15}, latency:{w:0.9,thr:0.25},
+    dim:{w:0.9,thr:0.30}, fog:{w:1.0,thr:0.30}, depth:{w:1.3,thr:0.20},
+    distort:{w:1.2,thr:0.30}, unstable:{w:0.5,thr:0.50}, halluc:{w:0.3,thr:0.70} },
+  lewy: { label:'Corps de Lewy',
+    // hallucinations précoces et fréquentes, fluctuations, prosopométamorphopsie (déformation des visages)
+    blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.15}, tunnel:{w:0.6,thr:0.30},
+    tint:{w:0.7,thr:0.25}, face:{w:1.4,thr:0.15}, latency:{w:1.0,thr:0.25},
+    dim:{w:0.9,thr:0.30}, fog:{w:1.0,thr:0.30}, depth:{w:1.2,thr:0.20},
+    distort:{w:1.3,thr:0.20}, unstable:{w:1.4,thr:0.20}, halluc:{w:1.5,thr:0.15} },
+  vasc: { label:'Vasculaire',
+    // séquelles d'AVC : amputation du champ (tunnel), lenteur de traitement, ralentissement cognitif ; fluctuations "en marches"
+    blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.10}, tunnel:{w:1.4,thr:0.10},
+    tint:{w:0.7,thr:0.25}, face:{w:0.9,thr:0.25}, latency:{w:1.4,thr:0.15},
+    dim:{w:1.2,thr:0.25}, fog:{w:1.3,thr:0.20}, depth:{w:1.0,thr:0.30},
+    distort:{w:0.9,thr:0.35}, unstable:{w:0.9,thr:0.35}, halluc:{w:0.5,thr:0.50} }
+};
+let currentType = 'alz';
+const clamp100 = x => Math.max(0, Math.min(100, x));
+
+/* ---------- Presets par stade (0-100), modulés par le type ---------- */
 function applyStagePreset(v){
   const t = v/100;
-  state.blur.on = t > 0.05;      state.blur.intensity = 15+t*70;  state.blur.diameter = 20+t*40;
-  state.tunnel.on = t > 0.15;    state.tunnel.diameter = 75-t*45; state.tunnel.opacity = 60+t*40; state.tunnel.softness = 40-t*20;
-  state.contrast.on = t > 0.1;   state.contrast.contrast = 15+t*65; state.contrast.saturation = 10+t*70;
-  state.tint.on = t > 0.2;       state.tint.warmth = 10+t*60;      state.tint.hue = 10+t*50;
-  state.unstable.on = t > 0.4;   state.unstable.amplitude = Math.max(0,(t-0.35)*70); state.unstable.speed = 20+t*40;
-  state.dim.on = t > 0.3;        state.dim.amount = Math.max(0,(t-0.25)*55);
-  state.fog.on = t > 0.3;        state.fog.ghost = Math.max(0,(t-0.25)*60); state.fog.sharpness = Math.max(0,(t-0.25)*50);
-  state.halluc.on = t > 0.45;    state.halluc.frequency = Math.max(0,(t-0.4)*80); state.halluc.intensity = 30+t*60;
-  state.distort.on = t > 0.35;   state.distort.amplitude = Math.max(0,(t-0.3)*60); state.distort.speed = 15+t*40;
-  state.latency.on = t > 0.25;   state.latency.delay = Math.max(0,(t-0.2)*70);
-  state.depth.on = t > 0.3;      state.depth.separation = Math.max(0,(t-0.25)*70); state.depth.scale = Math.max(0,(t-0.25)*60);
-  state.face.on = t > 0.2;       state.face.threshold = 45; state.face.blur = 20+t*60; state.face.warp = Math.max(0,(t-0.3)*80);
+  const P = DEMENTIA_PROFILES[currentType];
+  const set = (key, thr, params)=>{
+    state[key].on = t > thr;
+    for(const k in params) state[key][k] = clamp100(params[k]);
+  };
+  set('blur',    P.blur.thr,    { intensity:(15+t*70)*P.blur.w, diameter:20+t*40 });
+  set('contrast',P.contrast.thr,{ contrast:(15+t*65)*P.contrast.w, saturation:(10+t*70)*P.contrast.w });
+  set('tunnel',  P.tunnel.thr,  { diameter:75-t*45*P.tunnel.w, opacity:60+t*40, softness:40-t*20 });
+  set('tint',    P.tint.thr,    { warmth:(10+t*60)*P.tint.w, hue:(10+t*50)*P.tint.w });
+  set('face',    P.face.thr,    { threshold:45, blur:(20+t*60)*P.face.w, warp:Math.max(0,(t-0.3)*80)*P.face.w });
+  set('latency', P.latency.thr, { delay:Math.max(0,(t-0.2)*70)*P.latency.w });
+  set('dim',     P.dim.thr,     { amount:Math.max(0,(t-0.25)*55)*P.dim.w });
+  set('fog',     P.fog.thr,     { ghost:Math.max(0,(t-0.25)*60)*P.fog.w, sharpness:Math.max(0,(t-0.25)*50)*P.fog.w });
+  set('depth',   P.depth.thr,   { separation:Math.max(0,(t-0.25)*70)*P.depth.w, scale:Math.max(0,(t-0.25)*60)*P.depth.w });
+  set('distort', P.distort.thr, { amplitude:Math.max(0,(t-0.3)*60)*P.distort.w, speed:15+t*40 });
+  set('unstable',P.unstable.thr,{ amplitude:Math.max(0,(t-0.35)*70)*P.unstable.w, speed:20+t*40 });
+  set('halluc',  P.halluc.thr,  { frequency:Math.max(0,(t-0.4)*80)*P.halluc.w, intensity:(30+t*60)*P.halluc.w });
   syncUIFromState();
 }
 
@@ -360,13 +404,22 @@ function syncUIFromState(){
   });
   const v = document.getElementById('stage-range').value;
   const tag = v<33?'LÉGER':v<66?'MODÉRÉ':'SÉVÈRE';
-  document.getElementById('stage-tag').textContent = 'STADE — '+tag;
+  const typeLbl = (DEMENTIA_PROFILES[currentType] ? DEMENTIA_PROFILES[currentType].label : '').toUpperCase();
+  document.getElementById('stage-tag').textContent = typeLbl + ' — ' + tag;
   ['leger','modere','severe'].forEach(id=>document.getElementById('lbl-'+id).classList.remove('active'));
   document.getElementById('lbl-'+(v<33?'leger':v<66?'modere':'severe')).classList.add('active');
 }
 
 /* ---------- UI wiring ---------- */
 document.getElementById('stage-range').addEventListener('input', e=>applyStagePreset(+e.target.value));
+
+document.querySelectorAll('.type-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    currentType = btn.dataset.type;
+    document.querySelectorAll('.type-btn').forEach(b=>b.classList.toggle('active', b===btn));
+    applyStagePreset(+document.getElementById('stage-range').value);
+  });
+});
 
 document.querySelectorAll('.effect').forEach(el=>{
   const key = el.dataset.effect;
