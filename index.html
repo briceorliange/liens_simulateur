@@ -296,6 +296,25 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
 #permission-overlay{display:none;}
 .engine-stub{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); pointer-events:none;}
 
+/* ---------- Avertissement scientifique (POINT 3) ---------- */
+.sci-note{display:flex; gap:11px; align-items:flex-start; background:var(--surface-2);
+  border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:var(--r-sm);
+  padding:12px 14px; margin:14px 0 4px; max-width:600px;}
+.sci-note .sci-ico{flex:0 0 auto; width:26px; height:26px; border-radius:8px; display:grid; place-items:center;
+  font-size:15px; color:var(--accent); background:color-mix(in srgb, var(--accent) 15%, transparent);
+  border:1px solid color-mix(in srgb, var(--accent) 35%, transparent);}
+.sci-note p{margin:0; font-size:11.5px; line-height:1.5; color:var(--muted);}
+.sci-note p b{color:var(--text); font-weight:600;}
+/* Version panneau : n'apparaît qu'en mode Expert */
+#panel .sci-note{margin:4px 0 10px;}
+#panel:not(.mode-expert) .sci-note-panel{display:none;}
+/* Version courte affichée dans le HUD */
+.sci-hud{pointer-events:none; display:inline-block; margin-top:8px; font:500 9.5px/1 'IBM Plex Mono',monospace;
+  letter-spacing:.04em; color:var(--muted); background:rgba(11,12,14,.5); backdrop-filter:blur(8px);
+  border:1px solid var(--line); border-radius:999px; padding:5px 11px;}
+/* Espacement des boutons d'action des troubles visuels */
+.tv-actions{margin-top:10px;}
+
 @media (min-width:820px){
   #panel{left:auto; right:0; top:0; bottom:0; width:420px; max-height:none; border-radius:0; border-top:none; border-left:1px solid var(--line-2); transform:translateX(100%);}
   #panel.open{transform:none;}
@@ -359,6 +378,10 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
     <div class="mode-pill" id="select-pill"><span class="dot"></span><span id="select-pill-txt">Mode</span></div>
     <h2 class="sel-title">Configurer la simulation</h2>
     <p class="sel-hint">Deux modules indépendants et cumulables. Active l'un, l'autre, ou les deux.</p>
+    <div class="sci-note">
+      <span class="sci-ico" aria-hidden="true">⚕</span>
+      <p>Cette simulation est un outil pédagogique inspiré de troubles rapportés dans certaines pathologies neurocognitives et visuelles. Elle ne prétend pas reproduire exactement l'expérience vécue par chaque personne malade et ne constitue pas un outil diagnostique. <b>Les réglages doivent être validés avec des professionnels de santé.</b></p>
+    </div>
 
     <!-- Module A : Démence -->
     <div class="module" id="mod-dem">
@@ -425,9 +448,12 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
 
   <!-- ===== HUD + Pause ===== -->
   <div id="sim-hud">
-    <div class="hud-top">
-      <div class="hud-status"><span class="dot"></span><span><b id="hud-maladie">Alzheimer</b> &nbsp;<i id="hud-stade">Léger</i> <span class="tvc" id="hud-tv"></span></span></div>
-      <div id="lat-hud"></div>
+    <div class="hud-topwrap">
+      <div class="hud-top">
+        <div class="hud-status"><span class="dot"></span><span><b id="hud-maladie">Alzheimer</b> &nbsp;<i id="hud-stade">Léger</i> <span class="tvc" id="hud-tv"></span></span></div>
+        <div id="lat-hud"></div>
+      </div>
+      <div class="sci-hud" aria-hidden="true">⚕ Simulation pédagogique — non diagnostique</div>
     </div>
     <div class="hud-bar">
       <button class="hud-btn" id="btn-pause"><span class="k">⏸</span> Pause</button>
@@ -458,6 +484,12 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
       <button class="panel-close" id="panel-close" aria-label="Fermer">✕</button>
     </div>
 
+    <!-- Avertissement scientifique (mode Expert uniquement) -->
+    <div class="sci-note sci-note-panel">
+      <span class="sci-ico" aria-hidden="true">⚕</span>
+      <p>Outil pédagogique inspiré de troubles rapportés dans certaines pathologies neurocognitives et visuelles — <b>ni reproduction exacte de la maladie, ni outil diagnostique</b>. Réglages à valider avec des professionnels de santé.</p>
+    </div>
+
     <!-- Carte configuration démence (type + stade) -->
     <div class="setup-card">
       <p class="sc-lbl">Pathologie</p>
@@ -472,8 +504,8 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <span id="lbl-leger">Léger</span><span id="lbl-modere">Modéré</span><span id="lbl-severe">Sévère</span>
       </div>
       <div class="setup-actions">
-        <button id="btn-reset">Réinitialiser</button>
-        <button id="btn-allon">Tout activer</button>
+        <button id="btn-reset-dem">↺ Réinitialiser démence</button>
+        <button id="btn-allon-dem">✓ Tout activer démence</button>
       </div>
     </div>
 
@@ -654,6 +686,10 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
       </section>
       <div class="grp-sep tv"><span class="gs-t">B · Troubles visuels</span><label class="mswitch sm tvsw mod-switch" data-mod="tv" aria-label="Activer/couper les troubles visuels"><input type="checkbox"><span></span></label></div>
       <div class="tv-stage-row"><span class="sc-lbl">Stade des troubles visuels</span><div class="seg-stage"><button class="segS" data-tvstage="15">Léger</button><button class="segS" data-tvstage="50">Modéré</button><button class="segS" data-tvstage="85">Sévère</button></div></div>
+      <div class="setup-actions tv-actions">
+        <button id="btn-reset-tv">↺ Réinitialiser troubles visuels</button>
+        <button id="btn-allon-tv">✓ Tout activer troubles visuels</button>
+      </div>
       <section class="cat" data-cat="tv-acuite">
         <button class="cat-head" type="button">
           <span class="cat-tt"><span class="cat-name">Acuité & lumière</span><span class="cat-sub">Flou global, cataracte, photophobie</span></span>
@@ -828,7 +864,8 @@ const state = {
 
 const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face'];
 const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy'];
-let currentTab = 'demences';
+/* currentTab supprimé (v7.1) : les modules A/B sont désormais réellement
+   indépendants — plus aucun bouton principal ne dépend d'un onglet. */
 let demencesEnabled = true;
 let visuelEnabled = true;
 
@@ -926,14 +963,8 @@ document.getElementById('master-troubles').addEventListener('change', e=>{
   document.getElementById('troubles-body').classList.toggle('disabled', !visuelEnabled);
 });
 
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    currentTab = btn.dataset.tab;
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b===btn));
-    document.getElementById('tab-demences').style.display = currentTab==='demences' ? '' : 'none';
-    document.getElementById('tab-troubles').style.display = currentTab==='visuel' ? '' : 'none';
-  });
-});
+/* v7.1 : ancien système d'onglets (.tab-btn / #tab-demences / #tab-troubles)
+   retiré — il n'existe plus dans le DOM et n'est plus nécessaire. */
 
 document.querySelectorAll('.seg-group').forEach(g=>{
   const eff = g.dataset.effect, key = g.dataset.key;
@@ -961,22 +992,10 @@ document.querySelectorAll('.effect').forEach(el=>{
   });
 });
 
-document.getElementById('btn-reset').addEventListener('click', ()=>{
-  if(currentTab==='demences'){
-    document.getElementById('stage-range').value = 15;
-    applyStagePreset(15);
-  } else {
-    VISUEL_KEYS.forEach(k=>state[k].on = false);
-    scotomasDirty = true;
-    syncUIFromState();
-  }
-});
-document.getElementById('btn-allon').addEventListener('click', ()=>{
-  const keys = currentTab==='demences' ? DEMENTIA_KEYS : VISUEL_KEYS;
-  keys.forEach(k=>state[k].on = true);
-  scotomasDirty = true;
-  syncUIFromState();
-});
+/* v7.1 : les anciens boutons "Réinitialiser" / "Tout activer" (dépendants de
+   currentTab) sont remplacés par 4 boutons explicites, câblés dans la couche
+   de navigation plus bas (btn-reset-dem / btn-allon-dem / btn-reset-tv /
+   btn-allon-tv). */
 
 const panel = document.getElementById('panel');
 const panelToggle = document.getElementById('panel-toggle');
@@ -1971,33 +1990,63 @@ applyStagePreset(15);
   let cameraStarted = false;
   function ensureCamera(){ if(cameraStarted) return; cameraStarted = true; $('#enable-btn').click(); }
 
-  /* --- Synchronisation de toute l'UI vers l'état réel --- */
-  function syncAllUI(){
-    const dOn = demActive(), tOn = tvActive();
-    // modules (écran de sélection)
-    const modDem = $('#mod-dem'), modTv = $('#mod-tv');
-    if(modDem) modDem.classList.toggle('off', !dOn);
-    if(modTv)  modTv.classList.toggle('off', !tOn);
-    const sd=$('#state-dem'), stv=$('#state-tv');
-    if(sd) sd.textContent = dOn ? 'ACTIF' : 'COUPÉ';
-    if(stv) stv.textContent = tOn ? 'ACTIF' : 'COUPÉ';
-    // panneau : grisage des groupes coupés
-    const pnl = $('#panel');
-    if(pnl){ pnl.classList.toggle('dem-off', !dOn); pnl.classList.toggle('tv-off', !tOn); }
-    // interrupteurs (proxys) reflètent le master réel
-    $$('.mod-switch').forEach(sw=>{
-      const inp = sw.querySelector('input'); if(!inp) return;
-      inp.checked = (sw.dataset.mod==='dem') ? dOn : tOn;
-    });
-    // puces + boutons de stade TV
-    let n = 0;
-    $$('#tv-chips .chip').forEach(c=>{ const on=isOn(c.dataset.fx); c.classList.toggle('on', on); if(on) n++; });
+  /* --- Helpers de stade : label & bucket dérivés d'une valeur 0-100 ---
+     Léger < 33 · Modéré 33-65 · Sévère >= 66 (POINT 1, contrainte 4). */
+  function stageLabel(v){ return v<33 ? 'Léger' : v<66 ? 'Modéré' : 'Sévère'; }
+  function stageBucket(v){ return v<33 ? 15 : v<66 ? 50 : 85; }   // bouton représentatif de l'écran
+  function tvCount(){ return TV_KEYS.reduce((n,k)=> n + (isOn(k)?1:0), 0); }
+
+  /* --- Synchronisation UI du module A (démence) --- */
+  function syncDementiaUI(){
+    const dOn = demActive();
+    const modDem = $('#mod-dem'); if(modDem) modDem.classList.toggle('off', !dOn);
+    const sd = $('#state-dem');   if(sd) sd.textContent = dOn ? 'ACTIF' : 'COUPÉ';
+    const pnl = $('#panel');       if(pnl) pnl.classList.toggle('dem-off', !dOn);
+    // interrupteurs "démence" (écran de sélection + panneau) alignés sur le master réel
+    $$('.mod-switch[data-mod="dem"] input').forEach(i=> i.checked = dOn);
+    // pathologie : boutons de l'écran de sélection + boutons du panneau
+    $$('#grid-maladie .choice').forEach(b=> b.classList.toggle('on', b.dataset.type===nav.maladie));
+    $$('#type-select .type-btn').forEach(b=> b.classList.toggle('active', b.dataset.type===nav.maladie));
+    // stade : boutons de l'écran (par tranche) + valeur du slider + libellés
+    const bucket = stageBucket(nav.stade);
+    $$('#grid-stade .choice').forEach(b=> b.classList.toggle('on', +b.dataset.stage===bucket));
+    const sr = $('#stage-range'); if(sr && +sr.value !== nav.stade) sr.value = nav.stade;
+    ['leger','modere','severe'].forEach(id=>{ const el=$('#lbl-'+id); if(el) el.classList.remove('active'); });
+    const lbl = $('#lbl-'+(nav.stade<33?'leger':nav.stade<66?'modere':'severe')); if(lbl) lbl.classList.add('active');
+  }
+
+  /* --- Synchronisation UI du module B (troubles visuels) --- */
+  function syncVisualTroublesUI(){
+    const tOn = tvActive();
+    const modTv = $('#mod-tv'); if(modTv) modTv.classList.toggle('off', !tOn);
+    const stv = $('#state-tv'); if(stv) stv.textContent = tOn ? 'ACTIF' : 'COUPÉ';
+    const pnl = $('#panel');     if(pnl) pnl.classList.toggle('tv-off', !tOn);
+    $$('.mod-switch[data-mod="tv"] input').forEach(i=> i.checked = tOn);
+    // puces : reflètent l'état réel de chaque effet visuel
+    $$('#tv-chips .chip').forEach(c=> c.classList.toggle('on', isOn(c.dataset.fx)) );
+    // boutons de stade TV (écran de sélection + panneau, sélecteurs communs)
     $$('[data-tvstage]').forEach(b=> b.classList.toggle('on', +b.dataset.tvstage === nav.tvStade) );
-    // HUD
+  }
+
+  /* --- Synchronisation du HUD : toujours cohérent avec l'état réellement appliqué --- */
+  function syncHUD(){
+    const dOn = demActive(), tOn = tvActive(), n = tvCount();
     const hm=$('#hud-maladie'), hs=$('#hud-stade'), ht=$('#hud-tv');
     if(hm) hm.textContent = dOn ? MALADIES[nav.maladie] : 'Démence coupée';
-    if(hs) hs.textContent = dOn ? STAGES[nav.stade] : '';
-    if(ht) ht.textContent = (tOn && n) ? ('· '+n+' trouble'+(n>1?'s':'')+' visuel'+(n>1?'s':'')+' ('+STAGES[nav.tvStade]+')') : '';
+    if(hs) hs.textContent = dOn ? stageLabel(nav.stade) : '';
+    if(ht) ht.textContent = (tOn && n) ? ('· '+n+' trouble'+(n>1?'s':'')+' visuel'+(n>1?'s':'')+' ('+stageLabel(nav.tvStade)+')') : '';
+  }
+
+  /* --- Synchronisation globale (un seul point d'entrée) --- */
+  function syncAllUI(){ syncDementiaUI(); syncVisualTroublesUI(); syncHUD(); }
+
+  /* --- Setters d'état central : source unique de vérité --- */
+  function setDementiaType(type){ if(!MALADIES[type]) return; nav.maladie = type; applyDementia(); }
+  function setDementiaStage(value){ nav.stade = Math.max(0, Math.min(100, +value)); applyDementia(); }
+  function setVisualStage(value){ nav.tvStade = +value; reapplyTVStage(); }
+  function setModuleEnabled(module, enabled){
+    setMaster(module==='dem' ? 'master-demences' : 'master-troubles', !!enabled);
+    syncAllUI();
   }
 
   /* Applique le préréglage démence (n'affecte pas les troubles visuels) */
@@ -2064,31 +2113,22 @@ applyStagePreset(15);
   // Interrupteurs de module (proxys) → pilotent les masters moteur
   $$('.mod-switch').forEach(sw=>{
     sw.querySelector('input').addEventListener('change', e=>{
-      const on = e.target.checked;
-      setMaster(sw.dataset.mod==='dem' ? 'master-demences' : 'master-troubles', on);
-      syncAllUI();
+      setModuleEnabled(sw.dataset.mod, e.target.checked);
     });
   });
 
-  // Pathologie / stade démence
+  // Pathologie / stade démence (écran de sélection)
   $('#grid-maladie').addEventListener('click', e=>{
     const b = e.target.closest('.choice'); if(!b) return;
-    nav.maladie = b.dataset.type;
-    $$('#grid-maladie .choice').forEach(x=>x.classList.toggle('on', x===b));
-    applyDementia();
+    setDementiaType(b.dataset.type);
   });
   $('#grid-stade').addEventListener('click', e=>{
     const b = e.target.closest('.choice'); if(!b) return;
-    nav.stade = +b.dataset.stage;
-    $$('#grid-stade .choice').forEach(x=>x.classList.toggle('on', x===b));
-    applyDementia();
+    setDementiaStage(+b.dataset.stage);   // Léger=15 · Modéré=50 · Sévère=85 → slider (contrainte 5)
   });
 
   // Stade des troubles visuels (écran select + panneau, sélecteurs communs)
-  $$('[data-tvstage]').forEach(b=> b.addEventListener('click', ()=>{
-    nav.tvStade = +b.dataset.tvstage;
-    reapplyTVStage();
-  }));
+  $$('[data-tvstage]').forEach(b=> b.addEventListener('click', ()=> setVisualStage(+b.dataset.tvstage) ));
 
   // Puces troubles visuels (cumulables)
   $('#tv-chips').addEventListener('click', e=>{
@@ -2111,10 +2151,43 @@ applyStagePreset(15);
   // Reflets live des réglages du panneau
   $('#panel').addEventListener('input',  e=>{ if(e.target.classList.contains('fx-sub')) refreshReadouts(); });
   $('#panel').addEventListener('change', e=>{ if(e.target.classList.contains('fx-toggle')) syncAllUI(); });
-  $$('#type-select .type-btn').forEach(b=> b.addEventListener('click', ()=>setTimeout(()=>{refreshReadouts();syncAllUI();},0)) );
-  $('#stage-range').addEventListener('input', ()=>setTimeout(refreshReadouts,0));
-  $('#btn-reset').addEventListener('click', ()=>setTimeout(()=>{refreshReadouts();syncAllUI();},0));
-  $('#btn-allon').addEventListener('click', ()=>setTimeout(()=>{refreshReadouts();syncAllUI();},0));
+  // Pathologie choisie dans le PANNEAU → met à jour l'état central (écran + HUD)
+  $$('#type-select .type-btn').forEach(b=> b.addEventListener('click', ()=>{
+    nav.maladie = b.dataset.type;
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
+  }) );
+  // Slider de stade du PANNEAU → devient la vérité du stade démence (HUD + libellés)
+  $('#stage-range').addEventListener('input', e=>{
+    nav.stade = +e.target.value;
+    syncDementiaUI(); syncHUD();
+    setTimeout(refreshReadouts, 0);
+  });
+
+  /* ---- POINT 2 : 4 boutons indépendants (A démence · B troubles visuels) ---- */
+  // A) Réinitialiser démence : Alzheimer + stade Léger (15). Ne touche pas aux TV.
+  //    Le module démence n'est pas coupé (reste dans son état courant, de préférence actif).
+  $('#btn-reset-dem').addEventListener('click', ()=>{
+    nav.maladie = 'alz';
+    setDementiaStage(15);           // fixe le slider à 15 + applyStagePreset(15) + resync
+  });
+  // B) Tout activer démence : active tous les effets DEMENTIA_KEYS. Garde patho + stade. N'affecte pas les TV.
+  $('#btn-allon-dem').addEventListener('click', ()=>{
+    setModuleEnabled('dem', true);
+    DEMENTIA_KEYS.forEach(k=> setFx(k, true));
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
+  });
+  // C) Réinitialiser troubles visuels : coupe tous les TV + stade TV → Léger (15). Ne touche pas la démence.
+  $('#btn-reset-tv').addEventListener('click', ()=>{
+    TV_KEYS.forEach(k=> setFx(k, false));
+    nav.tvStade = 15;
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
+  });
+  // D) Tout activer troubles visuels : active tous les TV au stade visuel courant. Ne touche pas la démence.
+  $('#btn-allon-tv').addEventListener('click', ()=>{
+    setModuleEnabled('tv', true);
+    TV_KEYS.forEach(k=>{ setFx(k, true); applyTVKey(k, nav.tvStade); });
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
+  });
 
   $$('.cat-head').forEach(h=> h.addEventListener('click', ()=> h.parentElement.classList.toggle('open')) );
 
