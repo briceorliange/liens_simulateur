@@ -128,6 +128,19 @@
     border-radius:7px; cursor:pointer;}
   .seg-btn.active{background:rgba(73,198,176,0.18); color:var(--text); border-color:var(--accent);}
 
+  .master-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; margin-bottom:16px;
+    background:var(--surface-2); border:1px solid var(--line); border-radius:12px;
+  }
+  .master-row .master-label{font-size:13.5px; font-weight:600;}
+  .master-row .master-hint{display:block; font-size:10.5px; color:var(--muted); font-weight:400; margin-top:2px;}
+  .cat-body{transition:opacity 0.2s;}
+  .cat-body.disabled{opacity:0.32; pointer-events:none;}
+
+  #panel h2{margin-top:22px; padding-top:14px; border-top:1px solid var(--line);}
+  #panel h2:first-of-type{margin-top:0; padding-top:0; border-top:none;}
+
   #reset-row{display:flex; gap:10px; margin-top:16px;}
   #reset-row button{
     flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.04em;
@@ -172,6 +185,15 @@
     </div>
 
     <div id="tab-demences" class="tab-panel">
+
+    <div class="master-row">
+      <span class="master-label">Simulateur Démences
+        <span class="master-hint">Active/coupe tout ce groupe</span>
+      </span>
+      <label class="switch"><input type="checkbox" id="master-demences" checked><span class="slider-toggle"></span></label>
+    </div>
+
+    <div id="demences-body" class="cat-body">
 
     <h2>Type de démence</h2>
     <div id="type-select" class="type-select">
@@ -331,9 +353,20 @@
       </div>
     </div>
 
+    </div><!-- /demences-body -->
+
     </div><!-- /tab-demences -->
 
     <div id="tab-troubles" class="tab-panel" style="display:none">
+
+    <div class="master-row">
+      <span class="master-label">Troubles visuels
+        <span class="master-hint">Active/coupe tout ce groupe</span>
+      </span>
+      <label class="switch"><input type="checkbox" id="master-troubles" checked><span class="slider-toggle"></span></label>
+    </div>
+
+    <div id="troubles-body" class="cat-body">
 
     <h2>Acuité &amp; lumière</h2>
 
@@ -461,6 +494,8 @@
       </div>
     </div>
 
+    </div><!-- /troubles-body -->
+
     </div><!-- /tab-troubles -->
 
     <div id="reset-row">
@@ -508,6 +543,8 @@ const state = {
 const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face'];
 const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy'];
 let currentTab = 'demences';
+let demencesEnabled = true;
+let visuelEnabled = true;
 
 /* ---------- Profils cliniques ----------
    Pour chaque effet : w = poids (dose), thr = seuil d'apparition (fraction du stade).
@@ -577,7 +614,7 @@ function syncUIFromState(){
   const v = document.getElementById('stage-range').value;
   const tag = v<33?'LÉGER':v<66?'MODÉRÉ':'SÉVÈRE';
   const typeLbl = (DEMENTIA_PROFILES[currentType] ? DEMENTIA_PROFILES[currentType].label : '').toUpperCase();
-  document.getElementById('stage-tag').textContent = typeLbl + ' — ' + tag;
+  document.getElementById('stage-tag').textContent = demencesEnabled ? (typeLbl + ' — ' + tag) : (typeLbl + ' — COUPÉ');
   ['leger','modere','severe'].forEach(id=>document.getElementById('lbl-'+id).classList.remove('active'));
   document.getElementById('lbl-'+(v<33?'leger':v<66?'modere':'severe')).classList.add('active');
 }
@@ -591,6 +628,16 @@ document.querySelectorAll('.type-btn').forEach(btn=>{
     document.querySelectorAll('.type-btn').forEach(b=>b.classList.toggle('active', b===btn));
     applyStagePreset(+document.getElementById('stage-range').value);
   });
+});
+
+document.getElementById('master-demences').addEventListener('change', e=>{
+  demencesEnabled = e.target.checked;
+  document.getElementById('demences-body').classList.toggle('disabled', !demencesEnabled);
+  syncUIFromState();
+});
+document.getElementById('master-troubles').addEventListener('change', e=>{
+  visuelEnabled = e.target.checked;
+  document.getElementById('troubles-body').classList.toggle('disabled', !visuelEnabled);
 });
 
 document.querySelectorAll('.tab-btn').forEach(btn=>{
@@ -1012,7 +1059,7 @@ function spawnHalluc(freq, intensity){
 }
 function drawHalluc(){
   fxctx.clearRect(0,0,fxcanvas.width,fxcanvas.height);
-  if(!state.halluc.on) { hallucShapes=[]; return; }
+  if(!demencesEnabled || !state.halluc.on) { hallucShapes=[]; return; }
   spawnHalluc(state.halluc.frequency, state.halluc.intensity);
   const now = performance.now();
   hallucShapes = hallucShapes.filter(s=>now - s.born < s.life);
@@ -1059,7 +1106,7 @@ function generateScotomas(){
   scotomasDirty = false;
 }
 function drawScotomas(){
-  if(!state.retinopathy.on) return;
+  if(!visuelEnabled || !state.retinopathy.on) return;
   if(scotomasDirty || scotomaDims.w!==fxcanvas.width || scotomaDims.h!==fxcanvas.height) generateScotomas();
   const alpha = 0.35 + (state.retinopathy.intensity/100) * 0.55;
   scotomaShapes.forEach(s=>{
@@ -1143,7 +1190,7 @@ function startRenderLoop(useFallback){
   let lastGoodTime = 0;
   let lastHandDetect = 0;
   function detectHands(t){
-    const wantHands = (state.latency.on && state.latency.global <= 0.5) || state.depth.on;
+    const wantHands = demencesEnabled && ((state.latency.on && state.latency.global <= 0.5) || state.depth.on);
     if(!handTrackingReady || useFallback || !wantHands){
       handBoxes = []; lastGoodBoxes = [];
       if(handStatusEl && state.latency.on && state.latency.global > 0.5){
@@ -1193,7 +1240,7 @@ function startRenderLoop(useFallback){
   const handPatchCtx = handPatchCanvas.getContext('2d');
 
   function drawHandLag(t, ax, ay){
-    if(!state.latency.on || state.latency.global > 0.5 || handBoxes.length===0 || !ring) return;
+    if(!demencesEnabled || !state.latency.on || state.latency.global > 0.5 || handBoxes.length===0 || !ring) return;
     const delayMs = 220 + (state.latency.delay/100) * 700; // 0,22s à 0,92s : toujours perceptible
     const delayed = findDelayedSlot(t, delayMs);
     if(!delayed) return;
@@ -1262,7 +1309,7 @@ function startRenderLoop(useFallback){
   let faceBoxes = [];
   let lastFaceGood = [], lastFaceGoodT = 0, lastFaceDetect = 0;
   function detectFaces(t){
-    if(!faceTrackingReady || useFallback || !state.face.on){
+    if(!faceTrackingReady || useFallback || !demencesEnabled || !state.face.on){
       faceBoxes = []; lastFaceGood = []; return;
     }
     if(t - lastFaceDetect < 90) return; // ~11 détections/s
@@ -1300,7 +1347,7 @@ function startRenderLoop(useFallback){
   const faceOutCtx = faceOut.getContext('2d');
 
   function drawFaces(t, ax, ay){
-    if(!state.face.on || faceBoxes.length===0 || useFallback || !video.videoWidth) return;
+    if(!demencesEnabled || !state.face.on || faceBoxes.length===0 || useFallback || !video.videoWidth) return;
     const vw = video.videoWidth, vh = video.videoHeight;
     // seuil : hauteur du visage (fraction de l'image) au-delà de laquelle on le considère "proche"
     const nearThresh = 0.14 + (state.face.threshold/100) * 0.30;
@@ -1315,16 +1362,27 @@ function startRenderLoop(useFallback){
 
       faceOutCtx.clearRect(0,0,PW,PH);
       const near = f.h >= nearThresh;
+      let sizeMult = 1.5;
       if(near){
-        // --- Déformation (visage proche, ex. personne debout vue en contre-plongée) ---
-        const amp = (state.face.warp/100) * PW * 0.10;
+        // --- Déformation (visage proche) : plus la personne est proche, plus l'effet "dominant/écrasant" est fort ---
+        const proximity = Math.min(1, Math.max(0, (f.h - nearThresh) / 0.35)); // 0 = juste au seuil, 1 = très proche
+        sizeMult = 1.5 + proximity * 0.9; // le visage s'affiche plus grand que nature quand il domine
+        const amp = (state.face.warp/100) * PW * 0.10 * (1 + proximity*1.8);
+        const bulge = (state.face.warp/100) * proximity * 0.55; // élargissement progressif vers le bas (effet "surplombant")
         const slices = 26, sliceH = PH/slices;
         for(let i=0;i<slices;i++){
+          const ny = i/slices;
           const off = Math.sin(t*0.0022 + i*0.55)*amp + Math.sin(t*0.0013 + i*0.9)*amp*0.5;
-          const stretch = 1 + Math.sin(t*0.001 + i*0.3) * (state.face.warp/100)*0.12;
+          const stretch = (1 + Math.sin(t*0.001 + i*0.3) * (state.face.warp/100)*0.12) * (1 + bulge*ny);
           faceOutCtx.drawImage(facePatch, 0, i*sliceH, PW, sliceH,
                                (PW*(1-stretch))/2 + off, i*sliceH, PW*stretch, sliceH+1);
         }
+        // Assombrissement : rend le visage plus impressionnant/menaçant quand il domine
+        const darkAmt = 0.12 + proximity * 0.33;
+        faceOutCtx.globalAlpha = darkAmt;
+        faceOutCtx.fillStyle = '#000';
+        faceOutCtx.fillRect(0,0,PW,PH);
+        faceOutCtx.globalAlpha = 1;
       } else {
         // --- Flou (visage lointain) ---
         const blurPx = 2 + (state.face.blur/100) * 14;
@@ -1340,7 +1398,7 @@ function startRenderLoop(useFallback){
       faceOutCtx.globalCompositeOperation = 'source-over';
 
       const p = videoNormToScreen(f.cx, f.cy, ax, ay);
-      const dW = Math.max(f.w/ax, f.h/ay) * fxcanvas.width * 1.5;
+      const dW = Math.max(f.w/ax, f.h/ay) * fxcanvas.width * sizeMult;
       fxctx.drawImage(faceOut, p.x-dW/2, p.y-dW/2, dW, dW);
     });
   }
@@ -1349,7 +1407,7 @@ function startRenderLoop(useFallback){
   const depthPatch = document.createElement('canvas'); depthPatch.width=220; depthPatch.height=220;
   const depthPatchCtx = depthPatch.getContext('2d');
   function drawDepth(t, ax, ay){
-    if(!state.depth.on || handBoxes.length===0 || useFallback || !video.videoWidth) return;
+    if(!demencesEnabled || !state.depth.on || handBoxes.length===0 || useFallback || !video.videoWidth) return;
     const vw = video.videoWidth, vh = video.videoHeight;
     const sepN = (state.depth.separation/100) * 0.05;      // dédoublement horizontal (repère écran)
     const scaleErr = 1 + (state.depth.scale/100) * 0.6;    // fantôme mal dimensionné => distance faussée
@@ -1426,67 +1484,67 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uTime, t*0.001);
     gl.uniform2f(U.uAspectFix, ax, ay);
 
-    gl.uniform1f(U.uBlurOn, state.blur.on?1:0);
+    gl.uniform1f(U.uBlurOn, (demencesEnabled&&state.blur.on)?1:0);
     gl.uniform1f(U.uBlurIntensity, state.blur.intensity/100);
     gl.uniform1f(U.uBlurDiameter, 1-state.blur.diameter/100);
 
-    gl.uniform1f(U.uTunnelOn, state.tunnel.on?1:0);
+    gl.uniform1f(U.uTunnelOn, (demencesEnabled&&state.tunnel.on)?1:0);
     gl.uniform1f(U.uTunnelDiameter, 1-state.tunnel.diameter/100);
     gl.uniform1f(U.uTunnelOpacity, state.tunnel.opacity/100);
     gl.uniform1f(U.uTunnelSoftness, state.tunnel.softness/100);
 
-    gl.uniform1f(U.uContrastOn, state.contrast.on?1:0);
+    gl.uniform1f(U.uContrastOn, (demencesEnabled&&state.contrast.on)?1:0);
     gl.uniform1f(U.uContrastAmt, state.contrast.contrast/100);
     gl.uniform1f(U.uSaturationAmt, state.contrast.saturation/100);
 
-    gl.uniform1f(U.uTintOn, state.tint.on?1:0);
+    gl.uniform1f(U.uTintOn, (demencesEnabled&&state.tint.on)?1:0);
     gl.uniform1f(U.uTintWarmth, state.tint.warmth/100);
     gl.uniform1f(U.uTintHue, state.tint.hue/100);
 
-    gl.uniform1f(U.uUnstableOn, state.unstable.on?1:0);
+    gl.uniform1f(U.uUnstableOn, (demencesEnabled&&state.unstable.on)?1:0);
     gl.uniform1f(U.uUnstableAmp, state.unstable.amplitude/100);
     gl.uniform1f(U.uUnstableSpeed, state.unstable.speed/100);
 
-    gl.uniform1f(U.uDimOn, state.dim.on?1:0);
+    gl.uniform1f(U.uDimOn, (demencesEnabled&&state.dim.on)?1:0);
     gl.uniform1f(U.uDimAmt, state.dim.amount/100);
 
-    gl.uniform1f(U.uFogOn, state.fog.on?1:0);
+    gl.uniform1f(U.uFogOn, (demencesEnabled&&state.fog.on)?1:0);
     gl.uniform1f(U.uFogGhost, state.fog.ghost/100);
     gl.uniform1f(U.uFogSharpness, state.fog.sharpness/100);
 
-    gl.uniform1f(U.uDistortOn, state.distort.on?1:0);
+    gl.uniform1f(U.uDistortOn, (demencesEnabled&&state.distort.on)?1:0);
     gl.uniform1f(U.uDistortAmp, state.distort.amplitude/100);
     gl.uniform1f(U.uDistortSpeed, state.distort.speed/100);
 
-    gl.uniform1f(U.uAcuityOn, state.acuity.on?1:0);
+    gl.uniform1f(U.uAcuityOn, (visuelEnabled&&state.acuity.on)?1:0);
     gl.uniform1f(U.uAcuityAmt, state.acuity.amount/100);
-    gl.uniform1f(U.uPhotoOn, state.photo.on?1:0);
+    gl.uniform1f(U.uPhotoOn, (visuelEnabled&&state.photo.on)?1:0);
     gl.uniform1f(U.uPhotoAmt, state.photo.amount/100);
 
-    gl.uniform1f(U.uDmlaOn, state.dmla.on?1:0);
+    gl.uniform1f(U.uDmlaOn, (visuelEnabled&&state.dmla.on)?1:0);
     gl.uniform1f(U.uDmlaDiam, 1-state.dmla.diameter/100);
     gl.uniform1f(U.uDmlaAmt, state.dmla.intensity/100);
-    gl.uniform1f(U.uCataractOn, state.cataract.on?1:0);
+    gl.uniform1f(U.uCataractOn, (visuelEnabled&&state.cataract.on)?1:0);
     gl.uniform1f(U.uCataractAmt, state.cataract.amount/100);
 
-    gl.uniform1f(U.uEyeOn, state.eye.on?1:0);
+    gl.uniform1f(U.uEyeOn, (visuelEnabled&&state.eye.on)?1:0);
     gl.uniform1f(U.uEyeSide, state.eye.side);
     gl.uniform1f(U.uEyeAmt, state.eye.amount/100);
 
-    gl.uniform1f(U.uHemiOn, state.hemianopsia.on?1:0);
+    gl.uniform1f(U.uHemiOn, (visuelEnabled&&state.hemianopsia.on)?1:0);
     gl.uniform1f(U.uHemiSide, state.hemianopsia.side);
     gl.uniform1f(U.uHemiSoft, state.hemianopsia.softness/100);
     gl.uniform1f(U.uHemiOpacity, state.hemianopsia.opacity/100);
 
-    gl.uniform1f(U.uQuadOn, state.quadranopsia.on?1:0);
+    gl.uniform1f(U.uQuadOn, (visuelEnabled&&state.quadranopsia.on)?1:0);
     gl.uniform1f(U.uQuad, state.quadranopsia.quad);
     gl.uniform1f(U.uQuadOpacity, state.quadranopsia.opacity/100);
 
-    gl.uniform1f(U.uGlauOn, state.glaucoma.on?1:0);
+    gl.uniform1f(U.uGlauOn, (visuelEnabled&&state.glaucoma.on)?1:0);
     gl.uniform1f(U.uGlauDiameter, 1-state.glaucoma.diameter/100);
     gl.uniform1f(U.uGlauOpacity, state.glaucoma.opacity/100);
 
-    gl.uniform1f(U.uRpOn, state.retinitis.on?1:0);
+    gl.uniform1f(U.uRpOn, (visuelEnabled&&state.retinitis.on)?1:0);
     gl.uniform1f(U.uRpDiameter, 1-state.retinitis.diameter/100);
     gl.uniform1f(U.uRpDim, state.retinitis.dim/100);
 
