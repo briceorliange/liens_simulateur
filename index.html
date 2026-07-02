@@ -49,6 +49,10 @@ button{font-family:inherit;}
   opacity:0; visibility:hidden; transform:translateY(8px) scale(0.995);
   transition:opacity .32s var(--ease), transform .32s var(--ease), visibility .32s; overflow-y:auto;}
 .screen.active{opacity:1; visibility:visible; transform:none;}
+/* Correctif : les enfants directs d'un écran ne se compressent jamais
+   (sinon les cartes des modules sont coupées par overflow:hidden). Le
+   trop-plein éventuel est géré par le scroll de .screen (overflow-y:auto). */
+.screen > *{flex-shrink:0;}
 body.in-sim .screen{pointer-events:none;}
 
 /* ---------- En-tête + fil d'Ariane ---------- */
