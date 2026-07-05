@@ -353,10 +353,15 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
 
 /* ---------- Mode casque (duplication monoscopique pour support smartphone) ---------- */
 body.headset-mode{background:#000;}
-/* Ligne centrale discrète séparant les deux yeux */
+/* Ligne centrale discrète séparant les deux yeux (découpe verticale = écran paysage) */
 body.headset-mode::after{
   content:""; position:fixed; top:0; bottom:0; left:50%; width:1px;
   background:rgba(255,255,255,0.16); z-index:11; pointer-events:none;
+}
+/* Découpe haut/bas (navigateur en portrait, téléphone tenu en paysage) :
+   la ligne devient horizontale au milieu de l'écran */
+body.headset-mode.headset-split-h::after{
+  top:50%; bottom:auto; left:0; right:0; width:auto; height:1px;
 }
 /* HUD plus discret : ne pas encombrer le centre de l'image derrière les lentilles */
 body.headset-mode .sci-hud{display:none;}
@@ -1255,6 +1260,9 @@ function resize(){
   });
   if(gl) gl.viewport(0,0,glcanvas.width,glcanvas.height);
   dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
+  // Axe de découpe du mode casque : toujours le long du GRAND axe de l'écran.
+  // Navigateur bloqué en portrait + téléphone tenu en paysage → découpe haut/bas.
+  document.body.classList.toggle('headset-split-h', innerHeight > innerWidth);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -2228,10 +2236,14 @@ function startRenderLoop(useFallback){
 
     // Mode casque : duplication monoscopique de l'image pour un support smartphone.
     // Ce n'est pas une vraie stéréoscopie et ce n'est pas du WebXR.
-    // Dimensions de la VUE de rendu : plein écran, ou une moitié verticale (un œil).
+    // Axe de découpe : le long du GRAND axe de l'écran. Écran portrait (navigateur
+    // bloqué) + téléphone tenu en paysage → découpe HAUT/BAS, qui devient
+    // gauche/droite une fois le téléphone couché dans le casque.
+    const splitH = glcanvas.height > glcanvas.width;      // true = découpe haut/bas
     const halfW = Math.floor(glcanvas.width / 2);
-    const viewW = headsetMode ? halfW : glcanvas.width;
-    const viewH = glcanvas.height;
+    const halfH = Math.floor(glcanvas.height / 2);
+    const viewW = headsetMode ? (splitH ? glcanvas.width : halfW) : glcanvas.width;
+    const viewH = headsetMode ? (splitH ? halfH : glcanvas.height) : glcanvas.height;
 
     // COVER : l'image remplit toute la vue (léger recadrage) au lieu de laisser
     // des bandes létterbox sur les bords (source des bavures en haut/bas).
@@ -2341,10 +2353,19 @@ function startRenderLoop(useFallback){
 
     if(headsetMode){
       // Mode casque : la même image est rendue deux fois (œil gauche / œil droit).
-      gl.viewport(0, 0, halfW, viewH);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      gl.viewport(halfW, 0, glcanvas.width - halfW, viewH);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if(splitH){
+        // Découpe haut/bas (écran portrait) : les deux yeux sont empilés
+        gl.viewport(0, 0, glcanvas.width, halfH);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.viewport(0, halfH, glcanvas.width, glcanvas.height - halfH);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      } else {
+        // Découpe gauche/droite (écran paysage)
+        gl.viewport(0, 0, halfW, glcanvas.height);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.viewport(halfW, 0, glcanvas.width - halfW, glcanvas.height);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
     } else {
       gl.viewport(0, 0, glcanvas.width, glcanvas.height);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -2357,7 +2378,8 @@ function startRenderLoop(useFallback){
     // Les effets 2D (hallucinations, scotomes, mains, visages) sont dessinés UNE fois
     // dans la vue, puis dupliqués dans les deux moitiés — donc visibles dans chaque œil.
     if(headsetMode){
-      ensureEyeCanvas(Math.floor(fxcanvas.width/2), fxcanvas.height);
+      ensureEyeCanvas(splitH ? fxcanvas.width : Math.floor(fxcanvas.width/2),
+                      splitH ? Math.floor(fxcanvas.height/2) : fxcanvas.height);
       dfxCtx = eyeCtx; dfxW = eyeCanvas.width; dfxH = eyeCanvas.height;
     } else {
       dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
@@ -2374,7 +2396,8 @@ function startRenderLoop(useFallback){
       // Duplication du calque 2D dans les deux yeux
       fxctx.clearRect(0, 0, fxcanvas.width, fxcanvas.height);
       fxctx.drawImage(eyeCanvas, 0, 0);
-      fxctx.drawImage(eyeCanvas, Math.floor(fxcanvas.width/2), 0);
+      if(splitH) fxctx.drawImage(eyeCanvas, 0, Math.floor(fxcanvas.height/2));
+      else       fxctx.drawImage(eyeCanvas, Math.floor(fxcanvas.width/2), 0);
     }
   }
   requestAnimationFrame(frame);
