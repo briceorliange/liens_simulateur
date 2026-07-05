@@ -1237,9 +1237,10 @@ vec2 rotField(vec2 uv){
 }
 
 vec3 sampleVideo(vec2 uv){
-  uv = fitUv(uv);
-  uv = clamp(uv, 0.0, 1.0);
-  return texture(uTex, uv).rgb;
+  vec2 c = fitUv(uv);
+  // Hors cadre → noir (létterbox propre) au lieu d'étirer le pixel du bord (bavure)
+  if(c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0) return vec3(0.0);
+  return texture(uTex, c).rgb;
 }
 
 void main(){
@@ -1276,6 +1277,11 @@ void main(){
     if(uNysDir > 1.5)      nDir = normalize(vec2(1.0, 0.6)); // mixte
     else if(uNysDir > 0.5) nDir = vec2(0.0, 1.0);           // vertical
     else                   nDir = vec2(1.0, 0.0);           // horizontal
+    // Aligne l'axe sur l'orientation PHYSIQUE de l'écran (paysage/portrait) :
+    // "horizontal" reste gauche-droite tel que l'utilisateur tient l'appareil.
+    if(uFieldRot > 2.5)      nDir = vec2( nDir.y, -nDir.x);
+    else if(uFieldRot > 1.5) nDir = -nDir;
+    else if(uFieldRot > 0.5) nDir = vec2(-nDir.y, nDir.x);
     float base = sin(uTime * f);                      // onde sinusoïdale de base
     float ph = fract(uTime * f * 0.15);               // phase pour les saccades
     float saw = ph < 0.82 ? (ph/0.82) : (1.0-(ph-0.82)/0.18); // dérive lente, retour rapide
@@ -1994,7 +2000,9 @@ function startRenderLoop(useFallback){
 
     const videoAR = vw/vh, canvasAR = glcanvas.width/glcanvas.height;
     let ax=1, ay=1;
-    if(canvasAR > videoAR) ay = canvasAR/videoAR; else ax = videoAR/canvasAR;
+    // COVER : l'image remplit tout l'écran (léger recadrage) au lieu de laisser
+    // des bandes létterbox sur les bords (source des bavures en haut/bas).
+    if(canvasAR > videoAR) ay = videoAR/canvasAR; else ax = canvasAR/videoAR;
 
     gl.useProgram(prog);
     gl.uniform1f(U.uTime, t*0.001);
