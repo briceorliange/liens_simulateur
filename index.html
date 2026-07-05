@@ -321,6 +321,30 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
   #panel .grabber{display:none;}
   #panel-toggle{bottom:calc(env(safe-area-inset-bottom,0) + 24px);}
 }
+/* ---------- Mode Démonstration simplifié (pupitre) ---------- */
+#screen-demo{max-width:640px; margin:0 auto; width:100%;}
+.demo-sec{margin:14px 0 4px;}
+.demo-lbl{font:600 11px/1 'IBM Plex Mono',monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:0 0 9px; display:block;}
+.demo-lbl b{color:var(--tv);}
+.demo-grid{display:grid; gap:8px;}
+.demo-grid.c4{grid-template-columns:repeat(2,1fr);}
+.demo-grid.c3{grid-template-columns:repeat(3,1fr);}
+.demo-grid.tv{grid-template-columns:repeat(2,1fr);}
+.dbtn{cursor:pointer; text-align:center; color:var(--text); background:var(--surface); border:1.5px solid var(--line);
+  border-radius:14px; padding:15px 10px; font-size:14.5px; font-weight:600; transition:border-color .15s, background .15s, transform .12s var(--ease);}
+.dbtn:hover{border-color:var(--line-2); transform:translateY(-1px);}
+.dbtn.on{border-color:var(--demo); background:color-mix(in srgb, var(--demo) 16%, var(--surface)); color:#fff;}
+.dbtn.tvb.on{border-color:var(--tv); background:color-mix(in srgb, var(--tv) 18%, var(--surface));}
+.demo-cta{width:100%; margin-top:22px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px;
+  font-size:18px; font-weight:700; background:var(--demo); color:#fff; border:none; border-radius:999px; padding:20px 24px;
+  box-shadow:0 10px 30px color-mix(in srgb, var(--demo) 45%, transparent); transition:transform .15s var(--ease), filter .2s;}
+.demo-cta:active{transform:scale(.98);}
+.demo-hint{font:500 11px/1.5 'IBM Plex Mono',monospace; color:var(--muted-2); margin:14px 0 0; text-align:center;}
+/* Bascule Sans effet / Avec effet — dans le HUD */
+#btn-simfx{min-width:150px; justify-content:center; font-weight:700;}
+#btn-simfx.fx-on{background:color-mix(in srgb, var(--accent) 30%, transparent); border-color:var(--accent); color:#fff;}
+#btn-simfx.fx-off{background:var(--surface-3); border-color:var(--line-2); color:var(--muted);}
+
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important; animation-duration:.01ms !important;}}
 </style>
 </head>
@@ -365,7 +389,64 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <span class="mc-go">›</span>
       </button>
     </div>
-    <div class="home-foot">v7 · Démence + troubles visuels, indépendants et cumulables</div>
+    <div class="home-foot">v8 · Pupitre démence + trouble visuel · Nystagmus · bascule Sans/Avec effet</div>
+  </section>
+
+  <!-- ===== ÉCRAN DÉMO — Pupitre simplifié (cumul démence + trouble visuel) ===== -->
+  <section id="screen-demo" class="screen">
+    <div class="head">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="wordmark">LIENS</div>
+    </div>
+    <nav class="crumb" id="crumb-demo"></nav>
+    <div class="mode-pill"><span class="dot"></span><span>Démonstration</span></div>
+    <h2 class="sel-title">Pupitre de simulation</h2>
+    <p class="sel-hint">Choisis le profil, active la simulation, guide à l'oral. Cumul démence + un trouble visuel.</p>
+
+    <div class="demo-sec">
+      <span class="demo-lbl">Profil cognitif</span>
+      <div class="demo-grid c4" id="demo-dtype">
+        <button class="dbtn on" data-dtype="none">Aucun</button>
+        <button class="dbtn" data-dtype="alz">Alzheimer</button>
+        <button class="dbtn" data-dtype="lewy">Corps de Lewy</button>
+        <button class="dbtn" data-dtype="vasc">Vasculaire</button>
+      </div>
+    </div>
+    <div class="demo-sec" id="demo-dstage-sec">
+      <span class="demo-lbl">Stade cognitif</span>
+      <div class="demo-grid c3" id="demo-dstage">
+        <button class="dbtn on" data-dstage="15">Léger</button>
+        <button class="dbtn" data-dstage="50">Modéré</button>
+        <button class="dbtn" data-dstage="85">Sévère</button>
+      </div>
+    </div>
+
+    <div class="demo-sec">
+      <span class="demo-lbl"><b>Trouble visuel associé</b></span>
+      <div class="demo-grid tv" id="demo-vtrouble">
+        <button class="dbtn tvb on" data-vtrouble="none">Aucun</button>
+        <button class="dbtn tvb" data-vtrouble="eye">Perte d’un œil</button>
+        <button class="dbtn tvb" data-vtrouble="cataract">Cataracte</button>
+        <button class="dbtn tvb" data-vtrouble="glaucoma">Glaucome</button>
+        <button class="dbtn tvb" data-vtrouble="dmla">DMLA</button>
+        <button class="dbtn tvb" data-vtrouble="retinopathy">Rétinopathie</button>
+        <button class="dbtn tvb" data-vtrouble="hemianopsia">Hémianopsie</button>
+        <button class="dbtn tvb" data-vtrouble="photo">Photophobie</button>
+        <button class="dbtn tvb" data-vtrouble="acuity">Baisse d’acuité</button>
+        <button class="dbtn tvb" data-vtrouble="nystagmus">Nystagmus</button>
+      </div>
+    </div>
+    <div class="demo-sec" id="demo-vstage-sec">
+      <span class="demo-lbl"><b>Stade du trouble visuel</b></span>
+      <div class="demo-grid c3" id="demo-vstage">
+        <button class="dbtn tvb on" data-vstage="15">Léger</button>
+        <button class="dbtn tvb" data-vstage="50">Modéré</button>
+        <button class="dbtn tvb" data-vstage="85">Sévère</button>
+      </div>
+    </div>
+
+    <button class="demo-cta" id="btn-demo-start"><span>▶</span> Démarrer la simulation</button>
+    <p class="demo-hint">En simulation : bouton <b>Sans effet / Avec effet</b> pour comparer avant/après.</p>
   </section>
 
   <!-- ===== ÉCRAN 2 — SÉLECTION (2 modules indépendants) ===== -->
@@ -436,6 +517,7 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <button class="chip" data-fx="eye">Perte d’un œil</button>
         <button class="chip" data-fx="hemianopsia">Hémianopsie</button>
         <button class="chip" data-fx="quadranopsia">Quadranopsie</button>
+        <button class="chip" data-fx="nystagmus">Nystagmus</button>
         </div>
         <div class="tv-note">Chaque trouble activé prend le stade choisi. Réglage fin par trouble dans les modes Formateur / Expert.</div>
       </div>
@@ -456,6 +538,7 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
       <div class="sci-hud" aria-hidden="true">⚕ Simulation pédagogique — non diagnostique</div>
     </div>
     <div class="hud-bar">
+      <button class="hud-btn fx-on" id="btn-simfx"><span class="k">●</span> Avec effet</button>
       <button class="hud-btn" id="btn-pause"><span class="k">⏸</span> Pause</button>
       <button class="hud-btn danger" id="btn-quit"><span class="k">✕</span> Quitter</button>
     </div>
@@ -619,12 +702,21 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
     </div>
     <div class="effect" data-effect="unstable">
       <div class="effect-head">
-        <span class="name">Vision instable</span>
+        <span class="name">Vision instable <span style="color:var(--muted-2);font-family:'IBM Plex Mono',monospace;font-size:9px;">· cognitif ≠ nystagmus</span></span>
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
         <div class="sub-row"><label>Amplitude</label><input type="range" class="fx-sub" data-k="amplitude" min="0" max="100" value="30"></div>
         <div class="sub-row"><label>Vitesse</label><input type="range" class="fx-sub" data-k="speed" min="0" max="100" value="35"></div>
+      </div>
+    </div>
+    <div class="effect" data-effect="overload">
+      <div class="effect-head">
+        <span class="name">Surcharge visuelle</span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="40"></div>
       </div>
     </div>
         </div>
@@ -720,6 +812,24 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="50"></div>
+      </div>
+    </div>
+    <div class="effect" data-effect="nystagmus">
+      <div class="effect-head">
+        <span class="name">Nystagmus <span style="color:var(--muted-2);font-family:'IBM Plex Mono',monospace;font-size:9px;">· oculomoteur</span></span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="seg-group" data-effect="nystagmus" data-key="direction">
+          <button class="seg-btn active" data-val="0">Horizontal</button>
+          <button class="seg-btn" data-val="1">Vertical</button>
+          <button class="seg-btn" data-val="2">Mixte</button>
+        </div>
+        <div class="sub-row"><label>Amplitude</label><input type="range" class="fx-sub" data-k="amplitude" min="0" max="100" value="30"></div>
+        <div class="sub-row"><label>Fréquence</label><input type="range" class="fx-sub" data-k="frequency" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Saccades</label><input type="range" class="fx-sub" data-k="saccades" min="0" max="100" value="35"></div>
+        <div class="sub-row"><label>Flou mouv.</label><input type="range" class="fx-sub" data-k="motionBlur" min="0" max="100" value="25"></div>
         <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="50"></div>
       </div>
     </div>
@@ -848,9 +958,12 @@ const state = {
   latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 },
   depth:    { on:false, separation:45, scale:40 },
   face:     { on:false, threshold:45, blur:55, warp:55 },
+  overload: { on:false, amount:40 },   /* NOUVEAU — surcharge visuelle cognitive (Module A) */
 
   /* --- Troubles visuels (hors démence, cumulables) --- */
   acuity:      { on:false, amount:40 },
+  /* NOUVEAU — Nystagmus : trouble oculomoteur (Module B), distinct de "vision instable" */
+  nystagmus:   { on:false, direction:0, amplitude:30, frequency:40, saccades:35, motionBlur:25, amount:50 },
   photo:       { on:false, amount:50 },
   eye:         { on:false, side:0, amount:70 },
   hemianopsia: { on:false, side:0, softness:20, opacity:90 },
@@ -862,8 +975,8 @@ const state = {
   retinopathy: { on:false, count:40, size:40, intensity:60 }
 };
 
-const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face'];
-const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy'];
+const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face','overload'];
+const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy','nystagmus'];
 /* currentTab supprimé (v7.1) : les modules A/B sont désormais réellement
    indépendants — plus aucun bouton principal ne dépend d'un onglet. */
 let demencesEnabled = true;
@@ -878,19 +991,22 @@ const DEMENTIA_PROFILES = {
     blur:{w:1.0,thr:0.05}, contrast:{w:1.3,thr:0.05}, tunnel:{w:0.8,thr:0.20},
     tint:{w:0.9,thr:0.20}, face:{w:1.3,thr:0.15}, latency:{w:0.9,thr:0.25},
     dim:{w:0.9,thr:0.30}, fog:{w:1.0,thr:0.30}, depth:{w:1.3,thr:0.20},
-    distort:{w:1.2,thr:0.30}, unstable:{w:0.5,thr:0.50}, halluc:{w:0.3,thr:0.70} },
+    distort:{w:1.2,thr:0.30}, unstable:{w:0.5,thr:0.50}, halluc:{w:0.3,thr:0.70},
+    overload:{w:1.3,thr:0.40} },
   lewy: { label:'Corps de Lewy',
     // hallucinations précoces et fréquentes, fluctuations, prosopométamorphopsie (déformation des visages)
     blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.15}, tunnel:{w:0.6,thr:0.30},
     tint:{w:0.7,thr:0.25}, face:{w:1.4,thr:0.15}, latency:{w:1.0,thr:0.25},
     dim:{w:0.9,thr:0.30}, fog:{w:1.0,thr:0.30}, depth:{w:1.2,thr:0.20},
-    distort:{w:1.3,thr:0.20}, unstable:{w:1.4,thr:0.20}, halluc:{w:1.5,thr:0.15} },
+    distort:{w:1.3,thr:0.20}, unstable:{w:1.4,thr:0.20}, halluc:{w:1.5,thr:0.15},
+    overload:{w:0.9,thr:0.50} },
   vasc: { label:'Vasculaire',
     // séquelles d'AVC : amputation du champ (tunnel), lenteur de traitement, ralentissement cognitif ; fluctuations "en marches"
     blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.10}, tunnel:{w:1.4,thr:0.10},
     tint:{w:0.7,thr:0.25}, face:{w:0.9,thr:0.25}, latency:{w:1.4,thr:0.15},
     dim:{w:1.2,thr:0.25}, fog:{w:1.3,thr:0.20}, depth:{w:1.0,thr:0.30},
-    distort:{w:0.9,thr:0.35}, unstable:{w:0.9,thr:0.35}, halluc:{w:0.5,thr:0.50} }
+    distort:{w:0.9,thr:0.35}, unstable:{w:0.9,thr:0.35}, halluc:{w:0.5,thr:0.50},
+    overload:{w:1.0,thr:0.45} }
 };
 let currentType = 'alz';
 const clamp100 = x => Math.max(0, Math.min(100, x));
@@ -915,6 +1031,7 @@ function applyStagePreset(v){
   set('distort', P.distort.thr, { amplitude:Math.max(0,(t-0.3)*60)*P.distort.w, speed:15+t*40 });
   set('unstable',P.unstable.thr,{ amplitude:Math.max(0,(t-0.35)*70)*P.unstable.w, speed:20+t*40 });
   set('halluc',  P.halluc.thr,  { frequency:Math.max(0,(t-0.4)*80)*P.halluc.w, intensity:(30+t*60)*P.halluc.w });
+  set('overload',P.overload.thr,{ amount:Math.max(0,(t-0.4)*95)*P.overload.w });
   syncUIFromState();
 }
 
@@ -1098,6 +1215,10 @@ uniform float uFieldRot;
 // Glaucome / rétinite pigmentaire
 uniform float uGlauOn, uGlauDiameter, uGlauOpacity;
 uniform float uRpOn, uRpDiameter, uRpDim;
+// Nystagmus (trouble oculomoteur) : oscillation + saccades + flou directionnel
+uniform float uNysOn, uNysDir, uNysAmp, uNysFreq, uNysSacc, uNysBlur, uNysAmount;
+// Surcharge visuelle cognitive (détails parasites, perte de hiérarchie)
+uniform float uOverloadOn, uOverloadAmt;
 
 vec2 fitUv(vec2 uv){
   vec2 c = (uv-0.5)*uAspectFix + 0.5;
@@ -1132,6 +1253,9 @@ void main(){
     float sp = uDistortSpeed * 1.5;
     uv.x += sin(uv.y*10.0 + uTime*sp) * amp;
     uv.y += cos(uv.x*10.0 + uTime*sp*0.8) * amp * 0.7;
+    // dérive lente d'ensemble : l'espace semble se décaler, difficile à organiser
+    uv.x += sin(uTime*sp*0.15) * amp * 1.2;
+    uv.y += cos(uTime*sp*0.11) * amp * 0.9;
   }
 
   // --- Vision instable : oscillation + respiration de l'image ---
@@ -1141,7 +1265,34 @@ void main(){
     uv += vec2(sin(uTime*uUnstableSpeed*2.3), cos(uTime*uUnstableSpeed*1.7)) * uUnstableAmp * 0.006;
   }
 
+  // --- Nystagmus (oculomoteur) : le regard n'arrive pas à se fixer ---
+  // Distinct de "vision instable" : oscillation rythmique rapide + saccades
+  // (retour vif), pas une lente respiration cognitive.
+  vec2 nDir = vec2(1.0, 0.0);
+  if(uNysOn > 0.5){
+    float amt = uNysAmount;
+    float f  = 8.0 + uNysFreq * 20.0;                 // fréquence d'oscillation
+    float amp = uNysAmp * 0.02 * amt;                 // amplitude dosée
+    if(uNysDir > 1.5)      nDir = normalize(vec2(1.0, 0.6)); // mixte
+    else if(uNysDir > 0.5) nDir = vec2(0.0, 1.0);           // vertical
+    else                   nDir = vec2(1.0, 0.0);           // horizontal
+    float base = sin(uTime * f);                      // onde sinusoïdale de base
+    float ph = fract(uTime * f * 0.15);               // phase pour les saccades
+    float saw = ph < 0.82 ? (ph/0.82) : (1.0-(ph-0.82)/0.18); // dérive lente, retour rapide
+    float sacc = (saw*2.0 - 1.0) * uNysSacc * 0.012;  // composante saccadée
+    float jit = (fract(sin(uTime*93.1)*4371.0)-0.5) * amt * 0.004; // micro-jitter
+    float off = base*amp + sacc*amp*1.3 + jit;
+    uv += nDir * off;
+  }
+
   vec3 col = sampleVideo(uv);
+
+  // --- Nystagmus : flou directionnel léger (traînée du mouvement) ---
+  if(uNysOn > 0.5 && uNysBlur > 0.02){
+    float mb = uNysBlur * 0.007 * uNysAmount;
+    vec3 acc = col + sampleVideo(uv + nDir*mb) + sampleVideo(uv - nDir*mb);
+    col = mix(col, acc/3.0, clamp(uNysBlur, 0.0, 1.0) * 0.6);
+  }
 
   // --- Flou central (macula) : multi-tap radial ---
   if(uBlurOn > 0.5){
@@ -1181,6 +1332,21 @@ void main(){
     col = mix(vec3(g), col, sat);
   }
 
+  // --- Surcharge visuelle cognitive ---
+  // "Je vois trop de choses à la fois" : contours parasites renforcés,
+  // hiérarchie visuelle écrasée, micro-instabilité → brouillard cognitif.
+  if(uOverloadOn > 0.5){
+    float a = uOverloadAmt;
+    vec3 s1 = sampleVideo(uv + vec2(0.004, 0.0));
+    vec3 s2 = sampleVideo(uv + vec2(0.0, 0.004));
+    vec3 hf = col - (s1 + s2) * 0.5;          // hautes fréquences = détails
+    col += hf * a * 1.7;                        // détails inutiles plus présents
+    float g = dot(col, vec3(0.299,0.587,0.114));
+    col = mix(col, vec3(g), a * 0.14);          // légère perte de hiérarchie couleur
+    col += (fract(sin((uv.x+uv.y+uTime)*57.0)*4371.0)-0.5) * a * 0.05; // grain instable
+    col = clamp(col, 0.0, 1.0);
+  }
+
   // --- Brouillard cognitif : double vision + perte de netteté ---
   if(uFogOn > 0.5){
     vec2 off = vec2(uFogGhost*0.022, uFogGhost*0.01);
@@ -1213,10 +1379,13 @@ void main(){
 
   // --- Photophobie : éblouissement + halo lumineux pulsant ---
   if(uPhotoOn > 0.5){
-    float pulse = 0.6 + 0.15*sin(uTime*3.0);
-    col += vec3(uPhotoAmt * 0.55 * pulse);
-    float glow = smoothstep(0.55, 1.0, dot(col, vec3(0.333)));
-    col += glow * uPhotoAmt * 0.3;
+    float a = uPhotoAmt;
+    float lum = dot(col, vec3(0.299,0.587,0.114));
+    float pulse = 0.9 + 0.1*sin(uTime*3.0);
+    float bloom = smoothstep(0.5, 1.0, lum);      // halo ciblé sur les zones DÉJÀ claires
+    col += bloom * a * 0.85 * pulse;              // surexposition + halos
+    col += a * 0.16 * pulse;                      // éblouissement global léger (dosé)
+    col = mix(col, vec3(1.0), bloom * a * 0.35);  // perte de détail dans les hautes lumières
     col = clamp(col, 0.0, 1.0);
   }
 
@@ -1267,10 +1436,13 @@ void main(){
 
   // --- Glaucome : rétrécissement du champ périphérique ---
   if(uGlauOn > 0.5){
-    float d2 = uGlauDiameter * 0.5 + 0.03;
-    float soft = uGlauDiameter * 0.15 + 0.02;
+    float d2 = uGlauDiameter * 0.5 + 0.05;
+    float soft = uGlauDiameter * 0.30 + 0.14;   // transition large et douce (bords flous, pas francs)
     float mask = smoothstep(d2-soft, d2+soft, dist);
-    col = mix(col, vec3(0.0), mask * uGlauOpacity);
+    // périphérie grisée + assombrie + contraste affaibli (voile), centre encore visible mais dégradé
+    vec3 grey = mix(col, vec3(dot(col, vec3(0.33))), 0.55) * 0.38;
+    col = mix(col, grey, mask * uGlauOpacity);
+    col = mix(col, col*0.9, mask * 0.35);        // léger voile sombre global vers la périphérie
   }
 
   // --- Rétinite pigmentaire : champ tubulaire sévère + cécité nocturne ---
@@ -1363,6 +1535,8 @@ const U = {};
  'uQuadOn','uQuad','uQuadOpacity','uFieldRot',
  'uGlauOn','uGlauDiameter','uGlauOpacity',
  'uRpOn','uRpDiameter','uRpDim',
+ 'uNysOn','uNysDir','uNysAmp','uNysFreq','uNysSacc','uNysBlur','uNysAmount',
+ 'uOverloadOn','uOverloadAmt',
  'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 
 /* ---------- Hallucinations (calque 2D) ---------- */
@@ -1370,8 +1544,9 @@ let hallucShapes = [];
 let lastSpawn = 0;
 function spawnHalluc(freq, intensity){
   const now = performance.now();
-  const gap = 3200 - freq*26; // plus la fréquence est haute, plus l'écart est court
-  if(now - lastSpawn < Math.max(300,gap)) return;
+  // Intermittence : écart plus long + part d'aléatoire → apparitions imprévisibles, non continues
+  const gap = 4200 - freq*28;
+  if(now - lastSpawn < Math.max(700, gap) * (0.7 + Math.random()*0.9)) return;
   lastSpawn = now;
   const w = fxcanvas.width, h = fxcanvas.height;
   const edge = Math.random();
@@ -1381,10 +1556,10 @@ function spawnHalluc(freq, intensity){
   else if(edge<0.75){ x=0; y=Math.random()*h; }
   else { x=w; y=Math.random()*h; }
   hallucShapes.push({
-    x, y, born:now, life: 1800+Math.random()*1800,
-    size: (0.06+Math.random()*0.10)*Math.min(w,h) * (0.5+intensity/100),
-    type: Math.random()<0.5?'blob':'silhouette',
-    drift: {x:(Math.random()-0.5)*0.4, y:(Math.random()-0.5)*0.4},
+    x, y, born:now, life: 1000+Math.random()*1400,          // plus brèves
+    size: (0.05+Math.random()*0.08)*Math.min(w,h) * (0.5+intensity/100),
+    type: Math.random()<0.55?'blob':'silhouette',
+    drift: {x:(Math.random()-0.5)*0.5, y:(Math.random()-0.5)*0.5},
     hue: 200+Math.random()*60
   });
 }
@@ -1396,25 +1571,27 @@ function drawHalluc(){
   hallucShapes = hallucShapes.filter(s=>now - s.born < s.life);
   hallucShapes.forEach(s=>{
     const age = (now-s.born)/s.life;
-    const fade = age<0.3? age/0.3 : age>0.7 ? (1-age)/0.3 : 1;
-    const alpha = fade * (0.15 + state.halluc.intensity/180);
+    const fade = age<0.35? age/0.35 : age>0.65 ? (1-age)/0.35 : 1;  // apparition/disparition douces
+    const alpha = fade * (0.10 + state.halluc.intensity/240);        // moins nettes
     s.x += s.drift.x; s.y += s.drift.y;
     fxctx.save();
     fxctx.globalAlpha = alpha;
+    fxctx.filter = 'blur(3px)';                                      // ambigu, jamais net
     if(s.type==='blob'){
       const grad = fxctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.size);
-      grad.addColorStop(0, `hsla(${s.hue},30%,15%,0.9)`);
-      grad.addColorStop(1, `hsla(${s.hue},30%,15%,0)`);
+      grad.addColorStop(0, `hsla(${s.hue},25%,12%,0.85)`);
+      grad.addColorStop(1, `hsla(${s.hue},25%,12%,0)`);
       fxctx.fillStyle = grad;
       fxctx.beginPath(); fxctx.arc(s.x,s.y,s.size,0,7); fxctx.fill();
     } else {
-      fxctx.fillStyle = `hsla(${s.hue},20%,8%,0.85)`;
+      fxctx.fillStyle = `hsla(${s.hue},18%,7%,0.75)`;
       fxctx.beginPath();
-      fxctx.ellipse(s.x, s.y, s.size*0.35, s.size*0.9, 0, 0, 7);
+      fxctx.ellipse(s.x, s.y, s.size*0.32, s.size*0.95, 0, 0, 7);
       fxctx.fill();
     }
     fxctx.restore();
   });
+  fxctx.filter = 'none';
 }
 
 /* ---------- Scotomes (rétinopathie) : taches sombres fixes, régénérées à la demande ---------- */
@@ -1427,11 +1604,17 @@ function generateScotomas(){
   const n = Math.round(2 + (state.retinopathy.count/100) * 14);
   scotomaShapes = [];
   for(let i=0;i<n;i++){
+    // ~1 tache sur 4 est ramenée près du centre (scotomes péri/centraux)
+    const nearCenter = Math.random() < 0.25;
+    const cx = nearCenter ? (0.5 + (Math.random()-0.5)*0.35) : Math.random();
+    const cy = nearCenter ? (0.5 + (Math.random()-0.5)*0.35) : Math.random();
     scotomaShapes.push({
-      x: Math.random()*w,
-      y: Math.random()*h,
-      size: (0.03 + Math.random()*0.05) * Math.min(w,h) * (0.5 + state.retinopathy.size/100),
-      squish: 0.6 + Math.random()*0.8
+      x: cx*w,
+      y: cy*h,
+      size: (0.025 + Math.random()*0.06) * Math.min(w,h) * (0.5 + state.retinopathy.size/100), // tailles variables
+      squish: 0.5 + Math.random()*0.9,     // forme allongée irrégulière
+      rot: Math.random()*Math.PI,           // orientation aléatoire → non symétrique
+      lobe: 0.7 + Math.random()*0.5         // léger débord de contour (bords irréguliers)
     });
   }
   scotomasDirty = false;
@@ -1443,12 +1626,14 @@ function drawScotomas(){
   scotomaShapes.forEach(s=>{
     const grad = fxctx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.size);
     grad.addColorStop(0, `rgba(5,5,5,${alpha})`);
-    grad.addColorStop(0.7, `rgba(5,5,5,${alpha*0.8})`);
-    grad.addColorStop(1, 'rgba(5,5,5,0)');
+    grad.addColorStop(0.6, `rgba(5,5,5,${alpha*0.75})`);
+    grad.addColorStop(1, 'rgba(5,5,5,0)');       // bords flous
     fxctx.save();
+    fxctx.translate(s.x, s.y);
+    fxctx.rotate(s.rot);
     fxctx.fillStyle = grad;
     fxctx.beginPath();
-    fxctx.ellipse(s.x, s.y, s.size, s.size*s.squish, 0, 0, 7);
+    fxctx.ellipse(0, 0, s.size*s.lobe, s.size*s.squish, 0, 0, 7);
     fxctx.fill();
     fxctx.restore();
   });
@@ -1884,6 +2069,17 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uRpDiameter, 1-state.retinitis.diameter/100);
     gl.uniform1f(U.uRpDim, state.retinitis.dim/100);
 
+    gl.uniform1f(U.uNysOn, (visuelEnabled&&state.nystagmus.on)?1:0);
+    gl.uniform1f(U.uNysDir, state.nystagmus.direction);
+    gl.uniform1f(U.uNysAmp, state.nystagmus.amplitude/100);
+    gl.uniform1f(U.uNysFreq, state.nystagmus.frequency/100);
+    gl.uniform1f(U.uNysSacc, state.nystagmus.saccades/100);
+    gl.uniform1f(U.uNysBlur, state.nystagmus.motionBlur/100);
+    gl.uniform1f(U.uNysAmount, state.nystagmus.amount/100);
+
+    gl.uniform1f(U.uOverloadOn, (demencesEnabled&&state.overload.on)?1:0);
+    gl.uniform1f(U.uOverloadAmt, state.overload.amount/100);
+
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -1926,7 +2122,7 @@ applyStagePreset(15);
   };
   const MALADIES = { alz:'Alzheimer', lewy:'Corps de Lewy', vasc:'Vasculaire' };
   const STAGES   = { 15:'Léger', 50:'Modéré', 85:'Sévère' };
-  const TV_KEYS  = ['acuity','cataract','photo','dmla','glaucoma','retinitis','retinopathy','eye','hemianopsia','quadranopsia'];
+  const TV_KEYS  = ['acuity','cataract','photo','dmla','glaucoma','retinitis','retinopathy','eye','hemianopsia','quadranopsia','nystagmus'];
 
   /* Préréglages d'intensité des troubles visuels par stade (0-100).
      Placeholders raisonnables — À VALIDER par les partenaires médicaux. */
@@ -1934,15 +2130,18 @@ applyStagePreset(15);
     15:{ acuity:{amount:25}, cataract:{amount:25}, photo:{amount:30},
          dmla:{diameter:25,intensity:40}, glaucoma:{diameter:40,opacity:70},
          retinitis:{diameter:22,dim:40}, retinopathy:{count:25,size:30,intensity:45},
-         eye:{amount:45}, hemianopsia:{opacity:70}, quadranopsia:{opacity:70} },
+         eye:{amount:45}, hemianopsia:{opacity:70}, quadranopsia:{opacity:70},
+         nystagmus:{amplitude:15,frequency:25,saccades:15,motionBlur:10,amount:30} },
     50:{ acuity:{amount:50}, cataract:{amount:50}, photo:{amount:55},
          dmla:{diameter:38,intensity:65}, glaucoma:{diameter:55,opacity:85},
          retinitis:{diameter:32,dim:60}, retinopathy:{count:45,size:45,intensity:65},
-         eye:{amount:70}, hemianopsia:{opacity:85}, quadranopsia:{opacity:85} },
+         eye:{amount:70}, hemianopsia:{opacity:85}, quadranopsia:{opacity:85},
+         nystagmus:{amplitude:35,frequency:45,saccades:40,motionBlur:25,amount:55} },
     85:{ acuity:{amount:80}, cataract:{amount:82}, photo:{amount:85},
          dmla:{diameter:52,intensity:90}, glaucoma:{diameter:70,opacity:95},
          retinitis:{diameter:50,dim:85}, retinopathy:{count:70,size:65,intensity:90},
-         eye:{amount:95}, hemianopsia:{opacity:95}, quadranopsia:{opacity:92} }
+         eye:{amount:95}, hemianopsia:{opacity:95}, quadranopsia:{opacity:92},
+         nystagmus:{amplitude:55,frequency:65,saccades:65,motionBlur:45,amount:80} }
   };
 
   /* --- Fiches cliniques (placeholders À VALIDER) --- */
@@ -1968,7 +2167,9 @@ applyStagePreset(15);
     retinitis:{d:'Rétinite pigmentaire : champ tubulaire sévère et cécité nocturne.',r:'Réf. symptôme à valider'},
     retinopathy:{d:'Rétinopathie : scotomes (taches aveugles) dispersés dans le champ.',r:'Réf. symptôme à valider'},
     dmla:{d:'DMLA : scotome central flouté et grisé au centre du regard.',r:'Réf. symptôme à valider'},
-    photo:{d:'Photophobie : hypersensibilité à la lumière, éblouissement.',r:'Réf. symptôme à valider'}
+    photo:{d:'Photophobie : hypersensibilité à la lumière, éblouissement.',r:'Réf. symptôme à valider'},
+    nystagmus:{d:'Nystagmus : mouvement oculaire involontaire, rythmique et saccadé. Difficulté à fixer un point, à lire, à attraper précisément — distinct de l\u2019instabilité cognitive de la démence.',r:'Réf. symptôme à valider'},
+    overload:{d:'Surcharge visuelle : trop d\u2019informations traitées à la fois, perte de hiérarchie et de contours utiles, brouillard cognitif (Alzheimer modéré à sévère).',r:'Réf. symptôme à valider'}
   };
 
   /* --- Augmentation additive du DOM : lectures chiffrées + fiches --- */
@@ -2018,6 +2219,17 @@ applyStagePreset(15);
 
   /* --- État de navigation --- */
   const nav = { mode:'demo', maladie:'alz', stade:15, tvStade:15 };
+
+  /* --- État central du PUPITRE (mode Démonstration) ---
+     Un seul point de vérité pour la config rapide : profil + stade cognitif,
+     un trouble visuel associé + son stade, et la bascule Sans effet/Avec effet. */
+  const appState = {
+    dementiaType: 'none',   // none | alz | lewy | vasc
+    dementiaStage: 15,      // 15 | 50 | 85
+    visualTrouble: 'none',  // none | eye | cataract | glaucoma | dmla | retinopathy | hemianopsia | photo | acuity | nystagmus
+    visualStage: 15,        // 15 | 50 | 85
+    simulationEnabled: true
+  };
   let cameraStarted = false;
   function ensureCamera(){ if(cameraStarted) return; cameraStarted = true; $('#enable-btn').click(); }
 
@@ -2094,6 +2306,114 @@ applyStagePreset(15);
     setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
   }
 
+  /* ==================================================================
+     PUPITRE — fonction centrale de combinaison démence + trouble visuel.
+     Accès direct à l'état moteur `state`, `clamp100`, `syncUIFromState`
+     (portée globale du 1er script). Un seul trouble visuel à la fois en
+     mode Démonstration → cumul clair et non "empilé brutalement".
+     ================================================================== */
+  function applyCombinedPreset(cfg){
+    Object.assign(appState, cfg || {});
+    const dt = appState.dementiaType, vt = appState.visualTrouble;
+    const ds = appState.dementiaStage, vs = appState.visualStage;
+    const sim = appState.simulationEnabled;
+    const demWanted = dt !== 'none';
+    const tvWanted  = vt !== 'none';
+
+    // 1) On repart d'une base propre côté troubles visuels (un seul à la fois)
+    TV_KEYS.forEach(k => setFx(k, false));
+
+    // 2) Démence : type + stade (réutilise le préréglage moteur existant)
+    if(demWanted){
+      nav.maladie = dt; nav.stade = ds;
+      const btn = $('#type-select .type-btn[data-type="'+dt+'"]');
+      if(btn && !btn.classList.contains('active')) btn.click();
+      $('#stage-range').value = ds;
+      applyStagePreset(ds);
+    }
+
+    // 3) Trouble visuel associé (au stade choisi)
+    if(tvWanted){
+      nav.tvStade = vs;
+      setFx(vt, true);
+      applyTVKey(vt, vs);
+    }
+
+    // 4) Règles de pondération du cumul (évite les doublons excessifs)
+    if(demWanted && tvWanted) applyCombinationRules(dt, vt);
+
+    // 5) Masters selon la bascule Sans effet / Avec effet
+    setMaster('master-demences', sim && demWanted);
+    setMaster('master-troubles', sim && tvWanted);
+    savedMasters = { dem: demWanted, tv: tvWanted };
+    simFxOn = sim; updateSimFxBtn();
+
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); syncDemoUI(); }, 0);
+  }
+
+  /* Pondération intelligente : deux effets qui se ressemblent ne s'empilent
+     pas à pleine dose ; certains cumuls renforcent au contraire la préhension
+     ou la négligence spatiale. Mutations directes de `state` puis resync. */
+  function applyCombinationRules(dt, vt){
+    // Chevauchements → on atténue la part démence redondante
+    if(vt==='dmla'     && state.blur.on)     state.blur.intensity   = clamp100(state.blur.intensity*0.5);
+    if(vt==='glaucoma' && state.tunnel.on)   state.tunnel.opacity   = clamp100(state.tunnel.opacity*0.55);
+    if(vt==='cataract' && state.contrast.on){ state.contrast.contrast=clamp100(state.contrast.contrast*0.7);
+                                              state.contrast.saturation=clamp100(state.contrast.saturation*0.7); }
+    // Perte d'un œil : ne pas surassombrir → renforcer profondeur/préhension
+    if(vt==='eye'){ state.depth.on=true; state.latency.on=true;
+      state.depth.separation=clamp100(state.depth.separation+18);
+      state.depth.scale=clamp100(state.depth.scale+14); }
+    // Corps de Lewy : hallucinations & instabilité présentes mais subtiles
+    if(dt==='lewy'){ if(state.halluc.on) state.halluc.intensity=clamp100(state.halluc.intensity*0.8);
+                     if(state.unstable.on) state.unstable.amplitude=clamp100(state.unstable.amplitude*0.8); }
+    // Vasculaire + hémianopsie : renforce la négligence d'un côté
+    if(dt==='vasc' && vt==='hemianopsia'){ state.latency.on=true;
+      state.hemianopsia.opacity=clamp100(state.hemianopsia.opacity+5); }
+    // Nystagmus : réduit fortement la "vision instable" démence, renforce la
+    // difficulté de préhension, calme les hallucinations si Lewy.
+    if(vt==='nystagmus'){
+      if(state.unstable.on) state.unstable.amplitude=clamp100(state.unstable.amplitude*0.4);
+      state.depth.on=true;
+      if(dt==='lewy' && state.halluc.on) state.halluc.frequency=clamp100(state.halluc.frequency*0.7);
+    }
+    syncUIFromState();
+  }
+
+  /* Reflète l'état central dans les boutons du pupitre */
+  function syncDemoUI(){
+    $$('#demo-dtype .dbtn').forEach(b=> b.classList.toggle('on', b.dataset.dtype===appState.dementiaType));
+    $$('#demo-dstage .dbtn').forEach(b=> b.classList.toggle('on', +b.dataset.dstage===appState.dementiaStage));
+    $$('#demo-vtrouble .dbtn').forEach(b=> b.classList.toggle('on', b.dataset.vtrouble===appState.visualTrouble));
+    $$('#demo-vstage .dbtn').forEach(b=> b.classList.toggle('on', +b.dataset.vstage===appState.visualStage));
+    const dSec=$('#demo-dstage-sec'); if(dSec) dSec.style.opacity = appState.dementiaType==='none'?'.4':'1';
+    const vSec=$('#demo-vstage-sec'); if(vSec) vSec.style.opacity = appState.visualTrouble==='none'?'.4':'1';
+  }
+
+  /* --- Bascule Sans effet / Avec effet (universelle, non destructive) ---
+     Coupe les deux modules sans effacer la config, puis les restaure. */
+  let simFxOn = true;
+  let savedMasters = null;
+  function setSimFx(on){
+    simFxOn = on; appState.simulationEnabled = on;
+    if(!on){
+      savedMasters = { dem: demActive(), tv: tvActive() };
+      setMaster('master-demences', false);
+      setMaster('master-troubles', false);
+    } else if(savedMasters){
+      setMaster('master-demences', savedMasters.dem);
+      setMaster('master-troubles', savedMasters.tv);
+    }
+    updateSimFxBtn();
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
+  }
+  function updateSimFxBtn(){
+    const b = $('#btn-simfx'); if(!b) return;
+    b.classList.toggle('fx-on', simFxOn);
+    b.classList.toggle('fx-off', !simFxOn);
+    b.innerHTML = simFxOn ? '<span class="k">●</span> Avec effet' : '<span class="k">○</span> Sans effet';
+  }
+
   /* --- Écrans --- */
   function showScreen(id){
     document.body.classList.remove('in-sim');
@@ -2101,7 +2421,8 @@ applyStagePreset(15);
     $('#panel').classList.remove('open');
   }
   function setModeAccent(mode){ document.documentElement.style.setProperty('--mode', MODES[mode].accent); }
-  function goHome(){ showScreen('screen-home'); $('#pause-overlay').classList.remove('on'); }
+  function goHome(){ showScreen('screen-home'); $('#pause-overlay').classList.remove('on');
+    appState.simulationEnabled = true; simFxOn = true; savedMasters = null; updateSimFxBtn(); }
   function goSelect(mode){
     nav.mode = mode; setModeAccent(mode);
     const m = MODES[mode];
@@ -2111,6 +2432,27 @@ applyStagePreset(15);
     syncAllUI();
     showScreen('screen-select');
   }
+  /* Entrée dans le PUPITRE (mode Démonstration) */
+  function goDemo(){
+    nav.mode = 'demo'; setModeAccent('demo');
+    renderCrumb('#crumb-demo', ['home','mode']);
+    syncDemoUI();
+    showScreen('screen-demo');
+  }
+  /* Lance la simulation depuis le pupitre : applique le cumul puis passe en vue caméra */
+  function demoStart(){
+    applyCombinedPreset(appState);
+    ensureCamera();
+    const panel = $('#panel');
+    panel.classList.remove('mode-form','mode-expert');
+    $('#panel-mode-txt').textContent = MODES.demo.label;
+    document.body.classList.toggle('has-panel', MODES.demo.hasPanel); // pas de panneau en démo
+    $$('.screen').forEach(s=>s.classList.remove('active'));
+    document.body.classList.add('in-sim');
+    $('#pause-overlay').classList.remove('on');
+    setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
+  }
+
   function startSim(){
     const m = MODES[nav.mode];
     ensureCamera();
@@ -2134,12 +2476,25 @@ applyStagePreset(15);
     if(parts.includes('mode')) seg.push('<button data-nav="mode">'+MODES[nav.mode].label+'</button>');
     el.innerHTML = seg.join('<span class="sep">›</span>');
     el.querySelectorAll('button[data-nav]').forEach(b=>{
-      b.addEventListener('click', ()=> b.dataset.nav==='home' ? goHome() : goSelect(nav.mode));
+      b.addEventListener('click', ()=> b.dataset.nav==='home' ? goHome() : (nav.mode==='demo' ? goDemo() : goSelect(nav.mode)));
     });
   }
 
   /* --- Câblage --- */
-  $$('.mode-card').forEach(c=> c.addEventListener('click', ()=>goSelect(c.dataset.mode)) );
+  $$('.mode-card').forEach(c=> c.addEventListener('click', ()=>{
+    c.dataset.mode==='demo' ? goDemo() : goSelect(c.dataset.mode);
+  }) );
+
+  /* Pupitre (mode Démonstration) : chaque choix met à jour appState + relance le cumul */
+  $('#demo-dtype').addEventListener('click', e=>{ const b=e.target.closest('.dbtn'); if(!b) return;
+    applyCombinedPreset({ dementiaType:b.dataset.dtype }); });
+  $('#demo-dstage').addEventListener('click', e=>{ const b=e.target.closest('.dbtn'); if(!b) return;
+    applyCombinedPreset({ dementiaStage:+b.dataset.dstage }); });
+  $('#demo-vtrouble').addEventListener('click', e=>{ const b=e.target.closest('.dbtn'); if(!b) return;
+    applyCombinedPreset({ visualTrouble:b.dataset.vtrouble }); });
+  $('#demo-vstage').addEventListener('click', e=>{ const b=e.target.closest('.dbtn'); if(!b) return;
+    applyCombinedPreset({ visualStage:+b.dataset.vstage }); });
+  $('#btn-demo-start').addEventListener('click', demoStart);
 
   // Interrupteurs de module (proxys) → pilotent les masters moteur
   $$('.mod-switch').forEach(sw=>{
@@ -2173,6 +2528,7 @@ applyStagePreset(15);
   // Boutons de sim
   $('#btn-start').addEventListener('click', startSim);
   $('#btn-skip').addEventListener('click', ()=>{ startSim(); $('#panel').classList.add('open'); });
+  $('#btn-simfx').addEventListener('click', ()=> setSimFx(!simFxOn));
   $('#btn-quit').addEventListener('click', goHome);
   $('#btn-pause').addEventListener('click', ()=> $('#pause-overlay').classList.add('on'));
   $('#btn-resume').addEventListener('click', ()=> $('#pause-overlay').classList.remove('on'));
@@ -2225,6 +2581,8 @@ applyStagePreset(15);
   /* --- Init : démence ACTIVE, troubles visuels COUPÉS par défaut --- */
   setModeAccent('demo');
   setMaster('master-troubles', false);   // module B coupé au départ (cumul restauré à la réactivation)
+  updateSimFxBtn();
+  syncDemoUI();
   refreshReadouts();
   syncAllUI();
 })();
