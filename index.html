@@ -1167,6 +1167,13 @@ resize();
 const INVERT_FIELD_ROT = false;
 let fieldRotIndex = 0;
 
+/* Axe du NYSTAGMUS (démo = horizontal / gauche-droite).
+   'auto' : suit l'orientation écran/caméra détectée.
+   'h'    : force l'axe sur uv.x  (écran tenu normalement).
+   'v'    : force l'axe sur uv.y  (téléphone en paysage + navigateur bloqué en portrait).
+   → Si "horizontal" apparaît vertical chez toi, mets 'v'. Si l'inverse, mets 'h'. */
+const NYST_AXIS_MODE = 'v';
+
 const VERT = `#version 300 es
 in vec2 aPos;
 out vec2 vUv;
@@ -1216,7 +1223,7 @@ uniform float uFieldRot;
 uniform float uGlauOn, uGlauDiameter, uGlauOpacity;
 uniform float uRpOn, uRpDiameter, uRpDim;
 // Nystagmus (trouble oculomoteur) : oscillation + saccades + flou directionnel
-uniform float uNysOn, uNysDir, uNysAmp, uNysFreq, uNysSacc, uNysBlur, uNysAmount;
+uniform float uNysOn, uNysDir, uNysAmp, uNysFreq, uNysSacc, uNysBlur, uNysAmount, uNysAxisH;
 // Surcharge visuelle cognitive (détails parasites, perte de hiérarchie)
 uniform float uOverloadOn, uOverloadAmt;
 
@@ -1274,14 +1281,13 @@ void main(){
     float amt = uNysAmount;
     float f  = 8.0 + uNysFreq * 20.0;                 // fréquence d'oscillation
     float amp = uNysAmp * 0.02 * amt;                 // amplitude dosée
-    if(uNysDir > 1.5)      nDir = normalize(vec2(1.0, 0.6)); // mixte
-    else if(uNysDir > 0.5) nDir = vec2(0.0, 1.0);           // vertical
-    else                   nDir = vec2(1.0, 0.0);           // horizontal
-    // Aligne l'axe sur l'orientation PHYSIQUE de l'écran (paysage/portrait) :
-    // "horizontal" reste gauche-droite tel que l'utilisateur tient l'appareil.
-    if(uFieldRot > 2.5)      nDir = vec2( nDir.y, -nDir.x);
-    else if(uFieldRot > 1.5) nDir = -nDir;
-    else if(uFieldRot > 0.5) nDir = vec2(-nDir.y, nDir.x);
+    // Axe "horizontal" effectif fourni par le JS (gère l'orientation de l'écran).
+    // uNysAxisH = 0 → horizontal sur uv.x ; = 1 → horizontal sur uv.y.
+    vec2 hAxis = (uNysAxisH > 0.5) ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
+    vec2 vAxis = (uNysAxisH > 0.5) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    if(uNysDir > 1.5)      nDir = normalize(hAxis + 0.6*vAxis); // mixte
+    else if(uNysDir > 0.5) nDir = vAxis;                        // vertical
+    else                   nDir = hAxis;                        // horizontal
     float base = sin(uTime * f);                      // onde sinusoïdale de base
     float ph = fract(uTime * f * 0.15);               // phase pour les saccades
     float saw = ph < 0.82 ? (ph/0.82) : (1.0-(ph-0.82)/0.18); // dérive lente, retour rapide
@@ -1541,7 +1547,7 @@ const U = {};
  'uQuadOn','uQuad','uQuadOpacity','uFieldRot',
  'uGlauOn','uGlauDiameter','uGlauOpacity',
  'uRpOn','uRpDiameter','uRpDim',
- 'uNysOn','uNysDir','uNysAmp','uNysFreq','uNysSacc','uNysBlur','uNysAmount',
+ 'uNysOn','uNysDir','uNysAmp','uNysFreq','uNysSacc','uNysBlur','uNysAmount','uNysAxisH',
  'uOverloadOn','uOverloadAmt',
  'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 
@@ -2084,6 +2090,12 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uNysSacc, state.nystagmus.saccades/100);
     gl.uniform1f(U.uNysBlur, state.nystagmus.motionBlur/100);
     gl.uniform1f(U.uNysAmount, state.nystagmus.amount/100);
+    // Axe horizontal effectif : 'auto' suit l'orientation, sinon forcé
+    let nystH = 0;
+    if(NYST_AXIS_MODE === 'v') nystH = 1;
+    else if(NYST_AXIS_MODE === 'h') nystH = 0;
+    else nystH = (fieldRotIndex !== 0) ? 1 : 0; // auto
+    gl.uniform1f(U.uNysAxisH, nystH);
 
     gl.uniform1f(U.uOverloadOn, (demencesEnabled&&state.overload.on)?1:0);
     gl.uniform1f(U.uOverloadAmt, state.overload.amount/100);
