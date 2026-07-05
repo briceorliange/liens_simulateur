@@ -1167,6 +1167,14 @@ resize();
 const INVERT_FIELD_ROT = false;
 let fieldRotIndex = 0;
 
+/* Orientation des CHAMPS LATÉRALISÉS (perte d'un œil, hémianopsie, quadranopsie).
+   'auto' : détection automatique (navigateur qui tourne normalement).
+   1      : force un quart de tour → téléphone tenu en PAYSAGE avec navigateur
+            bloqué en portrait (l'effet passe du bas vers un côté).
+   3      : idem mais côté opposé (si le côté est inversé chez toi).
+   0      : aucune rotation. */
+const FIELD_ROT_MODE = 1;
+
 /* Axe du NYSTAGMUS (démo = horizontal / gauche-droite).
    'auto' : suit l'orientation écran/caméra détectée.
    'h'    : force l'axe sur uv.x  (écran tenu normalement).
@@ -2013,10 +2021,14 @@ function startRenderLoop(useFallback){
     gl.useProgram(prog);
     gl.uniform1f(U.uTime, t*0.001);
     gl.uniform2f(U.uAspectFix, ax, ay);
-    // Écart d'orientation entre la texture caméra et le canvas → quart de tour
-    const canvasPortrait = glcanvas.height > glcanvas.width;
-    const videoPortrait  = vh > vw;
-    fieldRotIndex = (canvasPortrait !== videoPortrait) ? (INVERT_FIELD_ROT ? 3 : 1) : 0;
+    // Écart d'orientation : forcé par FIELD_ROT_MODE, sinon détection auto
+    if(FIELD_ROT_MODE === 'auto'){
+      const canvasPortrait = glcanvas.height > glcanvas.width;
+      const videoPortrait  = vh > vw;
+      fieldRotIndex = (canvasPortrait !== videoPortrait) ? (INVERT_FIELD_ROT ? 3 : 1) : 0;
+    } else {
+      fieldRotIndex = FIELD_ROT_MODE;
+    }
     gl.uniform1f(U.uFieldRot, fieldRotIndex);
 
     gl.uniform1f(U.uBlurOn, (demencesEnabled&&state.blur.on)?1:0);
