@@ -292,6 +292,10 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
 .fiche .fr{display:block; margin-top:7px; color:var(--muted-2); font:500 10px 'IBM Plex Mono',monospace;}
 .fiche .todo{color:var(--accent-warn);}
 #panel:not(.mode-expert) .rv, #panel:not(.mode-expert) .fiche{display:none;}
+/* Avertissement confort nystagmus : discret, réservé au mode Expert */
+.nys-warning{margin-top:8px; font-size:10px; line-height:1.45; color:var(--accent-warn);
+  opacity:.85; font-family:'IBM Plex Mono',monospace;}
+#panel:not(.mode-expert) .nys-warning{display:none;}
 #panel.mode-form .cat-sub{display:none;}
 #permission-overlay{display:none;}
 .engine-stub{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); pointer-events:none;}
@@ -375,7 +379,7 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
     <div class="modes">
       <button class="mode-card" data-mode="demo" style="--c:var(--demo)">
         <span class="mc-ico">▶</span>
-        <span class="mc-txt"><strong>Mode Démonstration</strong><span>Simulation guidée, sans réglage. Conférences, EHPAD, étudiants, grand public.</span></span>
+        <span class="mc-txt"><strong>Mode Démonstration</strong><span>Présélections rapides, sans réglages fins. Conférences, EHPAD, étudiants, grand public.</span></span>
         <span class="mc-go">›</span>
       </button>
       <button class="mode-card" data-mode="form" style="--c:var(--form)">
@@ -831,6 +835,9 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <div class="sub-row"><label>Saccades</label><input type="range" class="fx-sub" data-k="saccades" min="0" max="100" value="35"></div>
         <div class="sub-row"><label>Flou mouv.</label><input type="range" class="fx-sub" data-k="motionBlur" min="0" max="100" value="25"></div>
         <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="50"></div>
+        <!-- Avertissement confort : visible uniquement en mode Expert (masqué via CSS ailleurs),
+             jamais dans le HUD de simulation ni dans le pupitre Démonstration. -->
+        <div class="nys-warning">⚠ À utiliser sur courte durée, surtout au niveau sévère : peut provoquer une gêne visuelle ou un inconfort.</div>
       </div>
     </div>
         </div>
@@ -1882,6 +1889,24 @@ function startRenderLoop(useFallback){
   const faceOut = document.createElement('canvas'); faceOut.width=256; faceOut.height=256;
   const faceOutCtx = faceOut.getContext('2d');
 
+  /* ---------- Sécurité / confort : plafonnement du nystagmus ----------
+     Le nystagmus sévère reste pédagogiquement pertinent, mais des valeurs
+     trop élevées deviennent inconfortables sur téléphone (risque de gêne
+     visuelle, voire de cinétose). Cette fonction plafonne les paramètres
+     EFFECTIFS envoyés au shader, sans toucher aux réglages enregistrés
+     ni à l'interface : l'effet affiché reste compatible avec une
+     démonstration mobile, quel que soit le réglage demandé. */
+  function getSafeNystagmusParams(n){
+    return {
+      direction: n.direction,
+      amplitude: Math.min(n.amplitude, 55),
+      frequency: Math.min(n.frequency, 65),
+      saccades: Math.min(n.saccades, 70),
+      motionBlur: Math.min(n.motionBlur, 50),
+      amount: Math.min(n.amount, 80)
+    };
+  }
+
   function drawFaces(t, ax, ay){
     if(!demencesEnabled || !state.face.on || faceBoxes.length===0 || useFallback || !video.videoWidth) return;
     const vw = video.videoWidth, vh = video.videoHeight;
@@ -1900,11 +1925,40 @@ function startRenderLoop(useFallback){
       const near = f.h >= nearThresh;
       let sizeMult = 1.5;
       if(near){
-        // --- Déformation (visage proche) : plus la personne est proche, plus l'effet "dominant/écrasant" est fort ---
-        const proximity = Math.min(1, Math.max(0, (f.h - nearThresh) / 0.35)); // 0 = juste au seuil, 1 = très proche
-        sizeMult = 1.5 + proximity * 0.9; // le visage s'affiche plus grand que nature quand il domine
-        const amp = (state.face.warp/100) * PW * 0.10 * (1 + proximity*1.8);
-        const bulge = (state.face.warp/100) * proximity * 0.55; // élargissement progressif vers le bas (effet "surplombant")
+        // --- Déformation (visage proche) : effet "domination" ---
+        // Un visage proche ET haut dans le champ évoque une personne debout au-dessus
+        // de l'utilisateur (assis / alité) : l'effet est renforcé (plus grand, plus sombre,
+        // plus déformé). Si le visage est proche mais centré à hauteur du regard (personne
+        // accroupie), l'effet est volontairement réduit : plus calme, plus humain.
+        const clamp01 = v => Math.max(0, Math.min(1, v));
+
+        // proximity : proximité apparente (taille du visage dans l'image). 0 = au seuil, 1 = très proche.
+        const proximity = clamp01((f.h - nearThresh) / 0.35);
+
+        // f.cy : centre vertical du visage (0 = haut de l'image, 1 = bas).
+        // highInFrame : plus le visage est haut dans l'image, plus la personne "surplombe".
+        const highInFrame = clamp01((0.52 - f.cy) / 0.28);
+
+        // eyeLevel : visage proche du centre vertical => personne à hauteur du regard.
+        const eyeLevel = 1.0 - clamp01(Math.abs(f.cy - 0.52) / 0.22);
+
+        // dominance : proche + haut dans le champ = impression d'être dominé.
+        const dominance = proximity * highInFrame;
+
+        // crouchRelief : proche mais à hauteur du regard = apaisement (posture accroupie).
+        const crouchRelief = proximity * eyeLevel;
+
+        // Taille : la proximité seule agrandit, la domination exagère, la posture accroupie tempère.
+        sizeMult = 1.45 + proximity * 0.35 + dominance * 0.85 - crouchRelief * 0.25;
+
+        // Déformation : renforcée par la domination, atténuée à hauteur du regard.
+        const warpBoost = 1.0 + dominance * 1.4 - crouchRelief * 0.45;
+        const amp = (state.face.warp/100) * PW * 0.10 * (1 + proximity*0.8) * warpBoost;
+
+        // Élargissement progressif vers le bas (effet "surplombant"), amplifié par la domination.
+        const baseBulge = (state.face.warp/100) * proximity * 0.55;
+        const bulge = baseBulge * (1.0 + dominance * 1.3 - crouchRelief * 0.5);
+
         const slices = 26, sliceH = PH/slices;
         for(let i=0;i<slices;i++){
           const ny = i/slices;
@@ -1913,8 +1967,10 @@ function startRenderLoop(useFallback){
           faceOutCtx.drawImage(facePatch, 0, i*sliceH, PW, sliceH,
                                (PW*(1-stretch))/2 + off, i*sliceH, PW*stretch, sliceH+1);
         }
-        // Assombrissement : rend le visage plus impressionnant/menaçant quand il domine
-        const darkAmt = 0.12 + proximity * 0.33;
+        // Assombrissement : la domination assombrit nettement (personne debout menaçante),
+        // la posture accroupie éclaircit (visage moins menaçant). Valeurs bornées pour
+        // éviter tout rendu grotesque ou horrifique.
+        const darkAmt = clamp01(0.08 + proximity * 0.10 + dominance * 0.35 - crouchRelief * 0.12);
         faceOutCtx.globalAlpha = darkAmt;
         faceOutCtx.fillStyle = '#000';
         faceOutCtx.fillRect(0,0,PW,PH);
@@ -2095,13 +2151,17 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uRpDiameter, 1-state.retinitis.diameter/100);
     gl.uniform1f(U.uRpDim, state.retinitis.dim/100);
 
+    // Garde-fou confort mobile : même si un réglage est poussé au maximum,
+    // les valeurs effectivement envoyées au shader restent plafonnées pour
+    // éviter un effet trop violent sur téléphone (le rendu reste clairement sévère).
+    const safeNys = getSafeNystagmusParams(state.nystagmus);
     gl.uniform1f(U.uNysOn, (visuelEnabled&&state.nystagmus.on)?1:0);
-    gl.uniform1f(U.uNysDir, state.nystagmus.direction);
-    gl.uniform1f(U.uNysAmp, state.nystagmus.amplitude/100);
-    gl.uniform1f(U.uNysFreq, state.nystagmus.frequency/100);
-    gl.uniform1f(U.uNysSacc, state.nystagmus.saccades/100);
-    gl.uniform1f(U.uNysBlur, state.nystagmus.motionBlur/100);
-    gl.uniform1f(U.uNysAmount, state.nystagmus.amount/100);
+    gl.uniform1f(U.uNysDir, safeNys.direction);
+    gl.uniform1f(U.uNysAmp, safeNys.amplitude/100);
+    gl.uniform1f(U.uNysFreq, safeNys.frequency/100);
+    gl.uniform1f(U.uNysSacc, safeNys.saccades/100);
+    gl.uniform1f(U.uNysBlur, safeNys.motionBlur/100);
+    gl.uniform1f(U.uNysAmount, safeNys.amount/100);
     // Axe horizontal effectif : 'auto' suit l'orientation, sinon forcé
     let nystH = 0;
     if(NYST_AXIS_MODE === 'v') nystH = 1;
@@ -2173,7 +2233,9 @@ applyStagePreset(15);
          dmla:{diameter:52,intensity:90}, glaucoma:{diameter:70,opacity:95},
          retinitis:{diameter:50,dim:85}, retinopathy:{count:70,size:65,intensity:90},
          eye:{amount:95}, hemianopsia:{opacity:95}, quadranopsia:{opacity:92},
-         nystagmus:{amplitude:55,frequency:65,saccades:65,motionBlur:45,amount:80} }
+         /* Nystagmus sévère : volontairement plafonné pour rester supportable sur téléphone
+            (fort mais sans mouvements trop violents — confort de démonstration). */
+         nystagmus:{amplitude:45,frequency:58,saccades:55,motionBlur:38,amount:72} }
   };
 
   /* --- Fiches cliniques (placeholders À VALIDER) --- */
