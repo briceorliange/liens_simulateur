@@ -351,6 +351,28 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
 #btn-simfx.fx-on{background:color-mix(in srgb, var(--accent) 30%, transparent); border-color:var(--accent); color:#fff;}
 #btn-simfx.fx-off{background:var(--surface-3); border-color:var(--line-2); color:var(--muted);}
 
+/* ---------- Mode casque (duplication monoscopique pour support smartphone) ---------- */
+body.headset-mode{background:#000;}
+/* Ligne centrale discrète séparant les deux yeux */
+body.headset-mode::after{
+  content:""; position:fixed; top:0; bottom:0; left:50%; width:1px;
+  background:rgba(255,255,255,0.16); z-index:11; pointer-events:none;
+}
+/* HUD plus discret : ne pas encombrer le centre de l'image derrière les lentilles */
+body.headset-mode .sci-hud{display:none;}
+body.headset-mode .hud-status{opacity:0.75; transform:scale(0.92); transform-origin:left top;}
+body.headset-mode .hud-bar{transform:scale(0.9); transform-origin:center bottom;}
+/* Bouton bascule du pupitre Démonstration */
+.demo-headset-toggle{width:100%; margin-top:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px;
+  font-size:14.5px; font-weight:600; color:var(--muted); background:var(--surface); border:1.5px solid var(--line);
+  border-radius:999px; padding:14px 20px; transition:border-color .15s, background .15s, color .15s, transform .12s var(--ease);}
+.demo-headset-toggle:hover{border-color:var(--line-2); transform:translateY(-1px);}
+.demo-headset-toggle.on{border-color:var(--demo); color:#fff; background:color-mix(in srgb, var(--demo) 16%, var(--surface));}
+/* Bouton casque du HUD */
+#btn-headset.on{background:color-mix(in srgb, var(--accent) 24%, transparent); border-color:var(--accent); color:#fff;}
+/* Note confort casque : réservée au mode Expert */
+#panel:not(.mode-expert) .headset-note{display:none;}
+
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important; animation-duration:.01ms !important;}}
 </style>
 </head>
@@ -451,6 +473,9 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
       </div>
     </div>
 
+    <button class="demo-headset-toggle" id="btn-demo-headset">
+      Mode casque OFF
+    </button>
     <button class="demo-cta" id="btn-demo-start"><span>▶</span> Démarrer la simulation</button>
     <p class="demo-hint">En simulation : bouton <b>Sans effet / Avec effet</b> pour comparer avant/après.</p>
   </section>
@@ -545,6 +570,7 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
     </div>
     <div class="hud-bar">
       <button class="hud-btn fx-on" id="btn-simfx"><span class="k">●</span> Avec effet</button>
+      <button class="hud-btn" id="btn-headset"><span class="k">◫</span> Casque OFF</button>
       <button class="hud-btn" id="btn-pause"><span class="k">⏸</span> Pause</button>
       <button class="hud-btn danger" id="btn-quit"><span class="k">✕</span> Quitter</button>
     </div>
@@ -577,6 +603,12 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
     <div class="sci-note sci-note-panel">
       <span class="sci-ico" aria-hidden="true">⚕</span>
       <p>Outil pédagogique inspiré de troubles rapportés dans certaines pathologies neurocognitives et visuelles — <b>ni reproduction exacte de la maladie, ni outil diagnostique</b>. Réglages à valider avec des professionnels de santé.</p>
+    </div>
+
+    <!-- Note confort du mode casque (mode Expert uniquement) -->
+    <div class="sci-note headset-note">
+      <span class="sci-ico" aria-hidden="true">◫</span>
+      <p><b>Mode casque :</b> duplique l'image pour un support smartphone. Il ne s'agit pas d'une vraie stéréoscopie ni d'un mode WebXR. Tester sur courte durée et vérifier que la caméra arrière n'est pas obstruée par le casque.</p>
     </div>
 
     <!-- Carte configuration démence (type + stade) -->
@@ -1178,12 +1210,51 @@ const fxctx = fxcanvas.getContext('2d');
 const gl = glcanvas.getContext('webgl2', {alpha:false});
 gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // corrige l'orientation de l'image caméra
 
+/* ---------- Mode casque ----------
+   // Mode casque : duplication monoscopique de l'image pour un support smartphone.
+   // Ce n'est pas une vraie stéréoscopie et ce n'est pas du WebXR.
+   La caméra du téléphone est unique : la MÊME image (WebGL + calque 2D)
+   est rendue dans la moitié gauche et la moitié droite de l'écran. */
+let headsetMode = false;
+
+/* Cible de dessin 2D courante : plein écran en mode normal, ou un canvas
+   "œil" (demi-largeur) en mode casque, blitté ensuite dans les 2 moitiés. */
+const eyeCanvas = document.createElement('canvas');
+const eyeCtx = eyeCanvas.getContext('2d');
+let dfxCtx = fxctx, dfxW = 0, dfxH = 0;
+function ensureEyeCanvas(w, h){
+  if(eyeCanvas.width !== w) eyeCanvas.width = w;
+  if(eyeCanvas.height !== h) eyeCanvas.height = h;
+}
+
+/* Aspect COVER générique : valable pour la vue plein écran ou une demi-vue */
+function computeAspectFix(viewW, viewH, videoW, videoH){
+  const videoAR = videoW / videoH;
+  const canvasAR = viewW / viewH;
+  let ax = 1, ay = 1;
+  if(canvasAR > videoAR) ay = videoAR / canvasAR;
+  else ax = canvasAR / videoAR;
+  return { ax, ay };
+}
+
+function setHeadsetMode(on){
+  headsetMode = !!on;
+  document.body.classList.toggle('headset-mode', headsetMode);
+  // Les formes 2D (hallucinations/scotomes) sont stockées en coordonnées de vue :
+  // on les régénère pour la nouvelle géométrie (pleine largeur ↔ demi-largeur).
+  hallucShapes = [];
+  scotomasDirty = true;
+  if(typeof window.syncHeadsetUI === 'function') window.syncHeadsetUI();
+  resize();
+}
+
 function resize(){
   const dpr = Math.min(window.devicePixelRatio||1, 2);
   [glcanvas, fxcanvas].forEach(c=>{
     c.width = innerWidth*dpr; c.height = innerHeight*dpr;
   });
   if(gl) gl.viewport(0,0,glcanvas.width,glcanvas.height);
+  dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -1599,7 +1670,7 @@ function spawnHalluc(freq, intensity){
   const gap = 4200 - freq*28;
   if(now - lastSpawn < Math.max(700, gap) * (0.7 + Math.random()*0.9)) return;
   lastSpawn = now;
-  const w = fxcanvas.width, h = fxcanvas.height;
+  const w = dfxW, h = dfxH;
   const edge = Math.random();
   let x,y;
   if(edge<0.25){ x=Math.random()*w; y=0; }
@@ -1615,7 +1686,7 @@ function spawnHalluc(freq, intensity){
   });
 }
 function drawHalluc(){
-  fxctx.clearRect(0,0,fxcanvas.width,fxcanvas.height);
+  dfxCtx.clearRect(0,0,dfxW,dfxH);
   if(!demencesEnabled || !state.halluc.on) { hallucShapes=[]; return; }
   spawnHalluc(state.halluc.frequency, state.halluc.intensity);
   const now = performance.now();
@@ -1625,24 +1696,24 @@ function drawHalluc(){
     const fade = age<0.35? age/0.35 : age>0.65 ? (1-age)/0.35 : 1;  // apparition/disparition douces
     const alpha = fade * (0.10 + state.halluc.intensity/240);        // moins nettes
     s.x += s.drift.x; s.y += s.drift.y;
-    fxctx.save();
-    fxctx.globalAlpha = alpha;
-    fxctx.filter = 'blur(3px)';                                      // ambigu, jamais net
+    dfxCtx.save();
+    dfxCtx.globalAlpha = alpha;
+    dfxCtx.filter = 'blur(3px)';                                      // ambigu, jamais net
     if(s.type==='blob'){
-      const grad = fxctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.size);
+      const grad = dfxCtx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.size);
       grad.addColorStop(0, `hsla(${s.hue},25%,12%,0.85)`);
       grad.addColorStop(1, `hsla(${s.hue},25%,12%,0)`);
-      fxctx.fillStyle = grad;
-      fxctx.beginPath(); fxctx.arc(s.x,s.y,s.size,0,7); fxctx.fill();
+      dfxCtx.fillStyle = grad;
+      dfxCtx.beginPath(); dfxCtx.arc(s.x,s.y,s.size,0,7); dfxCtx.fill();
     } else {
-      fxctx.fillStyle = `hsla(${s.hue},18%,7%,0.75)`;
-      fxctx.beginPath();
-      fxctx.ellipse(s.x, s.y, s.size*0.32, s.size*0.95, 0, 0, 7);
-      fxctx.fill();
+      dfxCtx.fillStyle = `hsla(${s.hue},18%,7%,0.75)`;
+      dfxCtx.beginPath();
+      dfxCtx.ellipse(s.x, s.y, s.size*0.32, s.size*0.95, 0, 0, 7);
+      dfxCtx.fill();
     }
-    fxctx.restore();
+    dfxCtx.restore();
   });
-  fxctx.filter = 'none';
+  dfxCtx.filter = 'none';
 }
 
 /* ---------- Scotomes (rétinopathie) : taches sombres fixes, régénérées à la demande ---------- */
@@ -1650,7 +1721,7 @@ let scotomaShapes = [];
 let scotomasDirty = true;
 let scotomaDims = {w:0,h:0};
 function generateScotomas(){
-  const w = fxcanvas.width, h = fxcanvas.height;
+  const w = dfxW, h = dfxH;
   scotomaDims = {w,h};
   const n = Math.round(2 + (state.retinopathy.count/100) * 14);
   scotomaShapes = [];
@@ -1672,21 +1743,21 @@ function generateScotomas(){
 }
 function drawScotomas(){
   if(!visuelEnabled || !state.retinopathy.on) return;
-  if(scotomasDirty || scotomaDims.w!==fxcanvas.width || scotomaDims.h!==fxcanvas.height) generateScotomas();
+  if(scotomasDirty || scotomaDims.w!==dfxW || scotomaDims.h!==dfxH) generateScotomas();
   const alpha = 0.35 + (state.retinopathy.intensity/100) * 0.55;
   scotomaShapes.forEach(s=>{
-    const grad = fxctx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.size);
+    const grad = dfxCtx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.size);
     grad.addColorStop(0, `rgba(5,5,5,${alpha})`);
     grad.addColorStop(0.6, `rgba(5,5,5,${alpha*0.75})`);
     grad.addColorStop(1, 'rgba(5,5,5,0)');       // bords flous
-    fxctx.save();
-    fxctx.translate(s.x, s.y);
-    fxctx.rotate(s.rot);
-    fxctx.fillStyle = grad;
-    fxctx.beginPath();
-    fxctx.ellipse(0, 0, s.size*s.lobe, s.size*s.squish, 0, 0, 7);
-    fxctx.fill();
-    fxctx.restore();
+    dfxCtx.save();
+    dfxCtx.translate(s.x, s.y);
+    dfxCtx.rotate(s.rot);
+    dfxCtx.fillStyle = grad;
+    dfxCtx.beginPath();
+    dfxCtx.ellipse(0, 0, s.size*s.lobe, s.size*s.squish, 0, 0, 7);
+    dfxCtx.fill();
+    dfxCtx.restore();
   });
 }
 let fallbackCanvas=null;
@@ -1841,11 +1912,11 @@ function startRenderLoop(useFallback){
 
       // Position à l'écran : conversion du repère vidéo (y vers le bas) vers le repère canvas
       const vyUp = 1 - cy;
-      const screenX = ((cx-0.5)/ax + 0.5) * fxcanvas.width;
-      const screenY = (0.5 - (vyUp-0.5)/ay) * fxcanvas.height;
-      const destSize = Math.max(box.w/ax, box.h/ay) * fxcanvas.width * scaleFactor * 1.3;
+      const screenX = ((cx-0.5)/ax + 0.5) * dfxW;
+      const screenY = (0.5 - (vyUp-0.5)/ay) * dfxH;
+      const destSize = Math.max(box.w/ax, box.h/ay) * dfxW * scaleFactor * 1.3;
 
-      fxctx.drawImage(handPatchCanvas, screenX-destSize/2, screenY-destSize/2, destSize, destSize);
+      dfxCtx.drawImage(handPatchCanvas, screenX-destSize/2, screenY-destSize/2, destSize, destSize);
     });
   }
 
@@ -1903,8 +1974,8 @@ function startRenderLoop(useFallback){
   function videoNormToScreen(cx, cy, ax, ay){
     const vyUp = 1 - cy;
     return {
-      x: ((cx-0.5)/ax + 0.5) * fxcanvas.width,
-      y: (0.5 - (vyUp-0.5)/ay) * fxcanvas.height
+      x: ((cx-0.5)/ax + 0.5) * dfxW,
+      y: (0.5 - (vyUp-0.5)/ay) * dfxH
     };
   }
 
@@ -2014,8 +2085,8 @@ function startRenderLoop(useFallback){
       faceOutCtx.globalCompositeOperation = 'source-over';
 
       const p = videoNormToScreen(f.cx, f.cy, ax, ay);
-      const dW = Math.max(f.w/ax, f.h/ay) * fxcanvas.width * sizeMult;
-      fxctx.drawImage(faceOut, p.x-dW/2, p.y-dW/2, dW, dW);
+      const dW = Math.max(f.w/ax, f.h/ay) * dfxW * sizeMult;
+      dfxCtx.drawImage(faceOut, p.x-dW/2, p.y-dW/2, dW, dW);
     });
   }
 
@@ -2040,15 +2111,15 @@ function startRenderLoop(useFallback){
       depthPatchCtx.globalCompositeOperation = 'source-over';
 
       const p = videoNormToScreen(box.cx, box.cy, ax, ay);
-      const dW = Math.max(box.w/ax, box.h/ay) * fxcanvas.width * 1.3;
-      const dx = sepN * fxcanvas.width;
-      fxctx.save();
-      fxctx.globalAlpha = 0.55;                            // fantôme décalé (double image)
-      fxctx.drawImage(depthPatch, p.x-dW/2+dx, p.y-dW/2, dW, dW);
-      fxctx.globalAlpha = 0.45;                            // fantôme redimensionné (mauvaise distance)
+      const dW = Math.max(box.w/ax, box.h/ay) * dfxW * 1.3;
+      const dx = sepN * dfxW;
+      dfxCtx.save();
+      dfxCtx.globalAlpha = 0.55;                            // fantôme décalé (double image)
+      dfxCtx.drawImage(depthPatch, p.x-dW/2+dx, p.y-dW/2, dW, dW);
+      dfxCtx.globalAlpha = 0.45;                            // fantôme redimensionné (mauvaise distance)
       const dW2 = dW*scaleErr;
-      fxctx.drawImage(depthPatch, p.x-dW2/2-dx, p.y-dW2/2, dW2, dW2);
-      fxctx.restore();
+      dfxCtx.drawImage(depthPatch, p.x-dW2/2-dx, p.y-dW2/2, dW2, dW2);
+      dfxCtx.restore();
     });
   }
 
@@ -2099,19 +2170,19 @@ function startRenderLoop(useFallback){
 
       // 3. Position écran et taille finale (agrandie)
       const p = videoNormToScreen(box.cx, box.cy, ax, ay);
-      const dW  = Math.max(box.w/ax, box.h/ay) * fxcanvas.width * 1.3;
+      const dW  = Math.max(box.w/ax, box.h/ay) * dfxW * 1.3;
       const dW2 = dW * effScale;
 
-      fxctx.save();
+      dfxCtx.save();
       // 4. Double image discrète (si ghost > 0)
       if(S.ghost > 0){
-        fxctx.globalAlpha = (S.ghost/100) * 0.35 * fluct;
-        fxctx.drawImage(bodyPatch, p.x - dW2/2 + dxPix*1.6, p.y - dW2/2 + dyPix*1.2, dW2, dW2);
+        dfxCtx.globalAlpha = (S.ghost/100) * 0.35 * fluct;
+        dfxCtx.drawImage(bodyPatch, p.x - dW2/2 + dxPix*1.6, p.y - dW2/2 + dyPix*1.2, dW2, dW2);
       }
       // 5. Main principale agrandie et décalée
-      fxctx.globalAlpha = Math.min(1, S.opacity/100) * (0.6 + 0.4*fluct);
-      fxctx.drawImage(bodyPatch, p.x - dW2/2 + dxPix, p.y - dW2/2 + dyPix, dW2, dW2);
-      fxctx.restore();
+      dfxCtx.globalAlpha = Math.min(1, S.opacity/100) * (0.6 + 0.4*fluct);
+      dfxCtx.drawImage(bodyPatch, p.x - dW2/2 + dxPix, p.y - dW2/2 + dyPix, dW2, dW2);
+      dfxCtx.restore();
     });
   }
 
@@ -2155,18 +2226,25 @@ function startRenderLoop(useFallback){
     gl.bindTexture(gl.TEXTURE_2D, videoTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uploadSrc);
 
-    const videoAR = vw/vh, canvasAR = glcanvas.width/glcanvas.height;
-    let ax=1, ay=1;
-    // COVER : l'image remplit tout l'écran (léger recadrage) au lieu de laisser
+    // Mode casque : duplication monoscopique de l'image pour un support smartphone.
+    // Ce n'est pas une vraie stéréoscopie et ce n'est pas du WebXR.
+    // Dimensions de la VUE de rendu : plein écran, ou une moitié verticale (un œil).
+    const halfW = Math.floor(glcanvas.width / 2);
+    const viewW = headsetMode ? halfW : glcanvas.width;
+    const viewH = glcanvas.height;
+
+    // COVER : l'image remplit toute la vue (léger recadrage) au lieu de laisser
     // des bandes létterbox sur les bords (source des bavures en haut/bas).
-    if(canvasAR > videoAR) ay = videoAR/canvasAR; else ax = canvasAR/videoAR;
+    // L'aspect est calculé sur la vue (demi-largeur en mode casque).
+    const { ax, ay } = computeAspectFix(viewW, viewH, vw, vh);
 
     gl.useProgram(prog);
     gl.uniform1f(U.uTime, t*0.001);
     gl.uniform2f(U.uAspectFix, ax, ay);
     // Écart d'orientation : forcé par FIELD_ROT_MODE, sinon détection auto
+    // (basée sur la VUE : en mode casque, chaque œil a sa propre géométrie)
     if(FIELD_ROT_MODE === 'auto'){
-      const canvasPortrait = glcanvas.height > glcanvas.width;
+      const canvasPortrait = viewH > viewW;
       const videoPortrait  = vh > vw;
       fieldRotIndex = (canvasPortrait !== videoPortrait) ? (INVERT_FIELD_ROT ? 3 : 1) : 0;
     } else {
@@ -2261,16 +2339,43 @@ function startRenderLoop(useFallback){
 
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
 
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    if(headsetMode){
+      // Mode casque : la même image est rendue deux fois (œil gauche / œil droit).
+      gl.viewport(0, 0, halfW, viewH);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.viewport(halfW, 0, glcanvas.width - halfW, viewH);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    } else {
+      gl.viewport(0, 0, glcanvas.width, glcanvas.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
 
     detectHands(t);
     detectFaces(t);
+
+    // Cible du calque 2D : plein écran, ou canvas "œil" (demi-largeur) en mode casque.
+    // Les effets 2D (hallucinations, scotomes, mains, visages) sont dessinés UNE fois
+    // dans la vue, puis dupliqués dans les deux moitiés — donc visibles dans chaque œil.
+    if(headsetMode){
+      ensureEyeCanvas(Math.floor(fxcanvas.width/2), fxcanvas.height);
+      dfxCtx = eyeCtx; dfxW = eyeCanvas.width; dfxH = eyeCanvas.height;
+    } else {
+      dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
+    }
+
     drawHalluc();          // efface le calque 2D puis dessine les hallucinations
     drawScotomas();        // scotomes fixes (rétinopathie)
     drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
     drawHandLag(t, ax, ay);// retard de préhension
     drawBodySchemaHands(t, ax, ay); // schéma corporel perturbé / mains disproportionnées
     drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
+
+    if(headsetMode){
+      // Duplication du calque 2D dans les deux yeux
+      fxctx.clearRect(0, 0, fxcanvas.width, fxcanvas.height);
+      fxctx.drawImage(eyeCanvas, 0, 0);
+      fxctx.drawImage(eyeCanvas, Math.floor(fxcanvas.width/2), 0);
+    }
   }
   requestAnimationFrame(frame);
 }
@@ -2411,7 +2516,8 @@ applyStagePreset(15);
     dementiaStage: 15,      // 15 | 50 | 85
     visualTrouble: 'none',  // none | eye | cataract | glaucoma | dmla | retinopathy | hemianopsia | photo | acuity | nystagmus
     visualStage: 15,        // 15 | 50 | 85
-    simulationEnabled: true
+    simulationEnabled: true,
+    headsetMode: false      // duplication monoscopique (support smartphone)
   };
   let cameraStarted = false;
   function ensureCamera(){ if(cameraStarted) return; cameraStarted = true; $('#enable-btn').click(); }
@@ -2716,6 +2822,25 @@ applyStagePreset(15);
     setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
   });
 
+  /* --- Mode casque : synchronisation des libellés des boutons ON/OFF --- */
+  function syncHeadsetUI(){
+    const on = headsetMode;
+    appState.headsetMode = on;   // reflet dans l'état central du pupitre
+    const bDemo = $('#btn-demo-headset');
+    if(bDemo){
+      bDemo.textContent = on ? 'Mode casque ON' : 'Mode casque OFF';
+      bDemo.classList.toggle('on', on);
+    }
+    const bHud = $('#btn-headset');
+    if(bHud){
+      bHud.innerHTML = '<span class="k">◫</span> ' + (on ? 'Casque ON' : 'Casque OFF');
+      bHud.classList.toggle('on', on);
+    }
+  }
+  window.syncHeadsetUI = syncHeadsetUI;   // appelée par setHeadsetMode() (moteur)
+  $('#btn-demo-headset').addEventListener('click', ()=> setHeadsetMode(!headsetMode));
+  $('#btn-headset').addEventListener('click', ()=> setHeadsetMode(!headsetMode));
+
   // Boutons de sim
   $('#btn-start').addEventListener('click', startSim);
   $('#btn-skip').addEventListener('click', ()=>{ startSim(); $('#panel').classList.add('open'); });
@@ -2773,6 +2898,7 @@ applyStagePreset(15);
   setModeAccent('demo');
   setMaster('master-troubles', false);   // module B coupé au départ (cumul restauré à la réactivation)
   updateSimFxBtn();
+  syncHeadsetUI();
   syncDemoUI();
   refreshReadouts();
   syncAllUI();
