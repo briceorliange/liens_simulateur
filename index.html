@@ -292,6 +292,8 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
 .fiche .fr{display:block; margin-top:7px; color:var(--muted-2); font:500 10px 'IBM Plex Mono',monospace;}
 .fiche .todo{color:var(--accent-warn);}
 #panel:not(.mode-expert) .rv, #panel:not(.mode-expert) .fiche{display:none;}
+/* Réglages fins réservés au mode Expert (ex : schéma corporel) */
+#panel:not(.mode-expert) .sub-row.expert-only{display:none;}
 /* Avertissement confort nystagmus : discret, réservé au mode Expert */
 .nys-warning{margin-top:8px; font-size:10px; line-height:1.45; color:var(--accent-warn);
   opacity:.85; font-family:'IBM Plex Mono',monospace;}
@@ -647,7 +649,7 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
       </section>
       <section class="cat" data-cat="reco">
         <button class="cat-head" type="button">
-          <span class="cat-tt"><span class="cat-name">Reconnaissance</span><span class="cat-sub">Visages et distances (agnosie)</span></span>
+          <span class="cat-tt"><span class="cat-name">Reconnaissance</span><span class="cat-sub">Visages, distances, schéma corporel</span></span>
           <span class="chev" aria-hidden="true">⌄</span>
         </button>
         <div class="cat-body">
@@ -670,6 +672,19 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
       <div class="sub-sliders">
         <div class="sub-row"><label>Dédoublement</label><input type="range" class="fx-sub" data-k="separation" min="0" max="100" value="45"></div>
         <div class="sub-row"><label>Erreur taille</label><input type="range" class="fx-sub" data-k="scale" min="0" max="100" value="40"></div>
+      </div>
+    </div>
+    <div class="effect" data-effect="bodySchema">
+      <div class="effect-head">
+        <span class="name">Mains disproportionnées <span style="color:var(--muted-2);font-family:'IBM Plex Mono',monospace;font-size:9px;">· schéma corporel perturbé · préhension altérée</span></span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="sub-row"><label>Grossissement</label><input type="range" class="fx-sub" data-k="scale" min="0" max="100" value="35"></div>
+        <div class="sub-row expert-only"><label>Décalage</label><input type="range" class="fx-sub" data-k="offset" min="0" max="100" value="25"></div>
+        <div class="sub-row expert-only"><label>Instabilité</label><input type="range" class="fx-sub" data-k="instability" min="0" max="100" value="20"></div>
+        <div class="sub-row expert-only"><label>Double image</label><input type="range" class="fx-sub" data-k="ghost" min="0" max="100" value="20"></div>
+        <div class="sub-row expert-only"><label>Opacité</label><input type="range" class="fx-sub" data-k="opacity" min="0" max="100" value="70"></div>
       </div>
     </div>
         </div>
@@ -966,6 +981,8 @@ const state = {
   depth:    { on:false, separation:45, scale:40 },
   face:     { on:false, threshold:45, blur:55, warp:55 },
   overload: { on:false, amount:40 },   /* NOUVEAU — surcharge visuelle cognitive (Module A) */
+  /* NOUVEAU — Schéma corporel perturbé : mains disproportionnées / préhension altérée (Module A) */
+  bodySchema:{ on:false, scale:35, offset:25, instability:20, ghost:20, opacity:70 },
 
   /* --- Troubles visuels (hors démence, cumulables) --- */
   acuity:      { on:false, amount:40 },
@@ -982,7 +999,7 @@ const state = {
   retinopathy: { on:false, count:40, size:40, intensity:60 }
 };
 
-const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face','overload'];
+const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face','overload','bodySchema'];
 const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy','nystagmus'];
 /* currentTab supprimé (v7.1) : les modules A/B sont désormais réellement
    indépendants — plus aucun bouton principal ne dépend d'un onglet. */
@@ -999,21 +1016,21 @@ const DEMENTIA_PROFILES = {
     tint:{w:0.9,thr:0.20}, face:{w:1.3,thr:0.15}, latency:{w:0.9,thr:0.25},
     dim:{w:0.9,thr:0.30}, fog:{w:1.0,thr:0.30}, depth:{w:1.3,thr:0.20},
     distort:{w:1.2,thr:0.30}, unstable:{w:0.5,thr:0.50}, halluc:{w:0.3,thr:0.70},
-    overload:{w:1.3,thr:0.40} },
+    overload:{w:1.3,thr:0.40}, bodySchema:{w:1.0,thr:0.35} },
   lewy: { label:'Corps de Lewy',
     // hallucinations précoces et fréquentes, fluctuations, prosopométamorphopsie (déformation des visages)
     blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.15}, tunnel:{w:0.6,thr:0.30},
     tint:{w:0.7,thr:0.25}, face:{w:1.4,thr:0.15}, latency:{w:1.0,thr:0.25},
     dim:{w:0.9,thr:0.30}, fog:{w:1.0,thr:0.30}, depth:{w:1.2,thr:0.20},
     distort:{w:1.3,thr:0.20}, unstable:{w:1.4,thr:0.20}, halluc:{w:1.5,thr:0.15},
-    overload:{w:0.9,thr:0.50} },
+    overload:{w:0.9,thr:0.50}, bodySchema:{w:0.8,thr:0.45} },
   vasc: { label:'Vasculaire',
     // séquelles d'AVC : amputation du champ (tunnel), lenteur de traitement, ralentissement cognitif ; fluctuations "en marches"
     blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.10}, tunnel:{w:1.4,thr:0.10},
     tint:{w:0.7,thr:0.25}, face:{w:0.9,thr:0.25}, latency:{w:1.4,thr:0.15},
     dim:{w:1.2,thr:0.25}, fog:{w:1.3,thr:0.20}, depth:{w:1.0,thr:0.30},
     distort:{w:0.9,thr:0.35}, unstable:{w:0.9,thr:0.35}, halluc:{w:0.5,thr:0.50},
-    overload:{w:1.0,thr:0.45} }
+    overload:{w:1.0,thr:0.45}, bodySchema:{w:1.2,thr:0.25} }
 };
 let currentType = 'alz';
 const clamp100 = x => Math.max(0, Math.min(100, x));
@@ -1039,6 +1056,13 @@ function applyStagePreset(v){
   set('unstable',P.unstable.thr,{ amplitude:Math.max(0,(t-0.35)*70)*P.unstable.w, speed:20+t*40 });
   set('halluc',  P.halluc.thr,  { frequency:Math.max(0,(t-0.4)*80)*P.halluc.w, intensity:(30+t*60)*P.halluc.w });
   set('overload',P.overload.thr,{ amount:Math.max(0,(t-0.4)*95)*P.overload.w });
+  set('bodySchema',P.bodySchema.thr,{
+    scale:       Math.max(0,(t-0.25)*80)*P.bodySchema.w,
+    offset:      Math.max(0,(t-0.25)*45)*P.bodySchema.w,
+    instability: Math.max(0,(t-0.35)*45)*P.bodySchema.w,
+    ghost:       Math.max(0,(t-0.35)*40)*P.bodySchema.w,
+    opacity:     55 + t*25
+  });
   syncUIFromState();
 }
 
@@ -1733,7 +1757,7 @@ function startRenderLoop(useFallback){
   let lastGoodTime = 0;
   let lastHandDetect = 0;
   function detectHands(t){
-    const wantHands = demencesEnabled && ((state.latency.on && state.latency.global <= 0.5) || state.depth.on);
+    const wantHands = demencesEnabled && ((state.latency.on && state.latency.global <= 0.5) || state.depth.on || state.bodySchema.on);
     if(!handTrackingReady || useFallback || !wantHands){
       handBoxes = []; lastGoodBoxes = [];
       if(handStatusEl && state.latency.on && state.latency.global > 0.5){
@@ -2028,6 +2052,69 @@ function startRenderLoop(useFallback){
     });
   }
 
+  /* ---------- Schéma corporel perturbé : mains disproportionnées ----------
+     Simulation pédagogique : la main est redessinée par-dessus l'image,
+     légèrement agrandie, un peu décalée, avec une oscillation lente et une
+     double image discrète. Bords fondus (dégradé radial) pour éviter tout
+     effet de collage. Pour le Corps de Lewy (currentType==='lewy'), l'effet
+     FLUCTUE lentement : il apparaît puis s'estompe (fluctuations cognitives).
+     L'effet reste subtil et crédible — jamais cartoon ni grotesque. */
+  const bodyPatch = document.createElement('canvas'); bodyPatch.width=256; bodyPatch.height=256;
+  const bodyPatchCtx = bodyPatch.getContext('2d');
+
+  function drawBodySchemaHands(t, ax, ay){
+    if(!demencesEnabled || !state.bodySchema.on || handBoxes.length===0 || useFallback || !video.videoWidth) return;
+    const S = state.bodySchema;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const PW = bodyPatch.width, PH = bodyPatch.height;
+
+    // Fluctuation lente (Corps de Lewy : l'effet va et vient, ~15 s de cycle)
+    let fluct = 1;
+    if(typeof currentType !== 'undefined' && currentType === 'lewy'){
+      fluct = 0.35 + 0.65 * (0.5 + 0.5*Math.sin(t*0.0004));
+    }
+
+    // Grossissement progressif : 20→léger, 50→net, 80→fort mais contrôlé
+    const baseScale = 1.0 + (S.scale/100) * 0.75;
+    const wobble = Math.sin(t*0.003) * (S.instability/100) * 0.08;
+    const effScale = 1 + (baseScale - 1 + wobble) * fluct;
+
+    // Décalage spatial lent (mauvaise localisation de la main)
+    const dxPix = Math.sin(t*0.0021) * S.offset * 0.5  * fluct;
+    const dyPix = Math.cos(t*0.0017) * S.offset * 0.35 * fluct;
+
+    handBoxes.forEach(box=>{
+      const sw = box.w*vw, sh = box.h*vh;
+      if(sw<4 || sh<4) return;
+
+      // 1. Extraire la zone de la main depuis la vidéo temps réel
+      bodyPatchCtx.clearRect(0,0,PW,PH);
+      bodyPatchCtx.drawImage(video, (box.cx-box.w/2)*vw, (box.cy-box.h/2)*vh, sw, sh, 0,0,PW,PH);
+      // 2. Bords progressifs : fondu radial pour intégrer le patch
+      bodyPatchCtx.globalCompositeOperation = 'destination-in';
+      const g = bodyPatchCtx.createRadialGradient(PW/2,PH/2,PW*0.30, PW/2,PH/2,PW*0.5);
+      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+      bodyPatchCtx.fillStyle = g; bodyPatchCtx.fillRect(0,0,PW,PH);
+      bodyPatchCtx.globalCompositeOperation = 'source-over';
+
+      // 3. Position écran et taille finale (agrandie)
+      const p = videoNormToScreen(box.cx, box.cy, ax, ay);
+      const dW  = Math.max(box.w/ax, box.h/ay) * fxcanvas.width * 1.3;
+      const dW2 = dW * effScale;
+
+      fxctx.save();
+      // 4. Double image discrète (si ghost > 0)
+      if(S.ghost > 0){
+        fxctx.globalAlpha = (S.ghost/100) * 0.35 * fluct;
+        fxctx.drawImage(bodyPatch, p.x - dW2/2 + dxPix*1.6, p.y - dW2/2 + dyPix*1.2, dW2, dW2);
+      }
+      // 5. Main principale agrandie et décalée
+      fxctx.globalAlpha = Math.min(1, S.opacity/100) * (0.6 + 0.4*fluct);
+      fxctx.drawImage(bodyPatch, p.x - dW2/2 + dxPix, p.y - dW2/2 + dyPix, dW2, dW2);
+      fxctx.restore();
+    });
+  }
+
   function frame(t){
     requestAnimationFrame(frame);
     const src = useFallback ? fallbackCanvas : video;
@@ -2182,6 +2269,7 @@ function startRenderLoop(useFallback){
     drawScotomas();        // scotomes fixes (rétinopathie)
     drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
     drawHandLag(t, ax, ay);// retard de préhension
+    drawBodySchemaHands(t, ax, ay); // schéma corporel perturbé / mains disproportionnées
     drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
   }
   requestAnimationFrame(frame);
@@ -2263,7 +2351,8 @@ applyStagePreset(15);
     dmla:{d:'DMLA : scotome central flouté et grisé au centre du regard.',r:'Réf. symptôme à valider'},
     photo:{d:'Photophobie : hypersensibilité à la lumière, éblouissement.',r:'Réf. symptôme à valider'},
     nystagmus:{d:'Nystagmus : mouvement oculaire involontaire, rythmique et saccadé. Difficulté à fixer un point, à lire, à attraper précisément — distinct de l\u2019instabilité cognitive de la démence.',r:'Réf. symptôme à valider'},
-    overload:{d:'Surcharge visuelle : trop d\u2019informations traitées à la fois, perte de hiérarchie et de contours utiles, brouillard cognitif (Alzheimer modéré à sévère).',r:'Réf. symptôme à valider'}
+    overload:{d:'Surcharge visuelle : trop d\u2019informations traitées à la fois, perte de hiérarchie et de contours utiles, brouillard cognitif (Alzheimer modéré à sévère).',r:'Réf. symptôme à valider'},
+    bodySchema:{d:'Schéma corporel perturbé : simulation pédagogique d\u2019une perception corporelle et spatiale altérée. Les mains paraissent trop proches, trop grandes ou mal situées, ce qui peut gêner la préhension et la coordination visuo-motrice. Cet effet ne représente pas un symptôme universel de la démence — il illustre une mauvaise appréciation des distances et de la position du corps dans l\u2019espace (Alzheimer et vasculaire modérés/sévères ; fluctuant dans le Corps de Lewy).',r:'Réf. symptôme à valider'}
   };
 
   /* --- Augmentation additive du DOM : lectures chiffrées + fiches --- */
@@ -2471,6 +2560,14 @@ applyStagePreset(15);
       state.depth.on=true;
       if(dt==='lewy' && state.halluc.on) state.halluc.frequency=clamp100(state.halluc.frequency*0.7);
     }
+    // Schéma corporel : cumul pédagogique, jamais illisible
+    if(state.bodySchema.on && state.depth.on)   state.bodySchema.scale  = clamp100(state.bodySchema.scale*0.85);
+    if(state.bodySchema.on && state.latency.on) state.bodySchema.offset = clamp100(state.bodySchema.offset*0.85);
+    if(vt==='eye' && state.bodySchema.on){      // vision monoculaire : erreur de distance accrue
+      state.bodySchema.scale  = clamp100(state.bodySchema.scale+10);
+      state.bodySchema.offset = clamp100(state.bodySchema.offset+8); }
+    if(vt==='nystagmus' && state.bodySchema.on) // éviter le double tremblement
+      state.bodySchema.instability = clamp100(state.bodySchema.instability*0.75);
     syncUIFromState();
   }
 
