@@ -363,10 +363,27 @@ body.headset-mode::after{
 body.headset-mode.headset-split-h::after{
   top:50%; bottom:auto; left:0; right:0; width:auto; height:1px;
 }
-/* HUD plus discret : ne pas encombrer le centre de l'image derrière les lentilles */
+/* HUD minimal en mode casque : ne pas encombrer les deux yeux.
+   NB portrait : la découpe des yeux est HORIZONTALE (œil haut / œil bas) ;
+   le statut reste collé en haut, la barre collée en bas, rien au centre. */
 body.headset-mode .sci-hud{display:none;}
-body.headset-mode .hud-status{opacity:0.75; transform:scale(0.92); transform-origin:left top;}
-body.headset-mode .hud-bar{transform:scale(0.9); transform-origin:center bottom;}
+body.headset-mode #lat-hud{display:none;}
+body.headset-mode .hud-status{opacity:0.72; transform:scale(0.86); transform-origin:top left; max-width:42vw;}
+body.headset-mode .hud-status b{font-size:11px;}
+body.headset-mode .hud-status i{font-size:9px;}
+body.headset-mode .hud-bar{transform:scale(0.82); transform-origin:bottom center; opacity:0.86; padding:6px; gap:6px; margin-bottom:4px;}
+body.headset-mode .hud-btn{padding:9px 13px; font-size:12px;}
+body.headset-mode #btn-simfx{min-width:0;}
+body.headset-mode #btn-pause{display:none;}
+/* Auto-hide du HUD en mode casque */
+body.headset-mode #sim-hud{opacity:1; transition:opacity .25s ease;}
+body.headset-mode.headset-hud-hidden #sim-hud{opacity:0; pointer-events:none;}
+body.headset-mode.headset-hud-hidden #sim-hud *{pointer-events:none !important;}
+/* Petit repère discret quand le HUD est masqué (le ::after est pris par la ligne centrale) */
+body.in-sim.headset-mode.headset-hud-hidden::before{
+  content:"tap"; position:fixed; bottom:10px; left:50%; transform:translateX(-50%);
+  z-index:13; font:500 9px 'IBM Plex Mono',monospace; color:rgba(255,255,255,0.22); pointer-events:none;
+}
 /* Bouton bascule du pupitre Démonstration */
 .demo-headset-toggle{width:100%; margin-top:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px;
   font-size:14.5px; font-weight:600; color:var(--muted); background:var(--surface); border:1.5px solid var(--line);
@@ -1222,6 +1239,35 @@ gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // corrige l'orientation de l'imag
    est rendue dans la moitié gauche et la moitié droite de l'écran. */
 let headsetMode = false;
 
+/* --- Auto-hide du HUD en mode casque (UI seulement, ne touche pas au moteur) --- */
+let headsetHudVisible = true;
+let headsetHudTimer = null;
+
+function showHeadsetHud(){
+  if(!headsetMode) return;
+  headsetHudVisible = true;
+  document.body.classList.remove('headset-hud-hidden');
+  clearTimeout(headsetHudTimer);
+  headsetHudTimer = setTimeout(hideHeadsetHud, 3500);
+}
+
+function hideHeadsetHud(){
+  if(!headsetMode) return;
+  headsetHudVisible = false;
+  document.body.classList.add('headset-hud-hidden');
+}
+
+function resetHeadsetHudTimer(){
+  if(!headsetMode) return;
+  showHeadsetHud();
+}
+
+/* Tap sur l'écran = le HUD réapparaît ; tap sur un bouton = action normale + timer relancé */
+document.addEventListener('pointerdown', e => {
+  if(!headsetMode || !document.body.classList.contains('in-sim')) return;
+  resetHeadsetHudTimer();
+});
+
 /* Cible de dessin 2D courante : plein écran en mode normal, ou un canvas
    "œil" (demi-largeur) en mode casque, blitté ensuite dans les 2 moitiés. */
 const eyeCanvas = document.createElement('canvas');
@@ -1245,6 +1291,13 @@ function computeAspectFix(viewW, viewH, videoW, videoH){
 function setHeadsetMode(on){
   headsetMode = !!on;
   document.body.classList.toggle('headset-mode', headsetMode);
+  if(headsetMode){
+    showHeadsetHud();                                  // HUD visible quelques secondes, puis auto-hide
+  }else{
+    document.body.classList.remove('headset-hud-hidden'); // retour au HUD normal, aucun auto-hide
+    clearTimeout(headsetHudTimer);
+    headsetHudVisible = true;
+  }
   // Les formes 2D (hallucinations/scotomes) sont stockées en coordonnées de vue :
   // on les régénère pour la nouvelle géométrie (pleine largeur ↔ demi-largeur).
   hallucShapes = [];
@@ -2737,6 +2790,10 @@ applyStagePreset(15);
   /* --- Écrans --- */
   function showScreen(id){
     document.body.classList.remove('in-sim');
+    // Sortie de simulation : on réaffiche le HUD et on coupe l'auto-hide
+    document.body.classList.remove('headset-hud-hidden');
+    clearTimeout(headsetHudTimer);
+    headsetHudVisible = true;
     $$('.screen').forEach(s=>s.classList.toggle('active', s.id===id));
     $('#panel').classList.remove('open');
   }
@@ -2770,6 +2827,7 @@ applyStagePreset(15);
     $$('.screen').forEach(s=>s.classList.remove('active'));
     document.body.classList.add('in-sim');
     $('#pause-overlay').classList.remove('on');
+    if(headsetMode) showHeadsetHud();   // casque déjà ON : relance l'auto-hide du HUD
     setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
   }
 
@@ -2786,6 +2844,7 @@ applyStagePreset(15);
     $$('.screen').forEach(s=>s.classList.remove('active'));
     document.body.classList.add('in-sim');
     $('#pause-overlay').classList.remove('on');
+    if(headsetMode) showHeadsetHud();   // casque déjà ON : relance l'auto-hide du HUD
     setTimeout(()=>{ refreshReadouts(); syncAllUI(); }, 0);
   }
 
