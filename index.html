@@ -575,19 +575,6 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <div class="sub-row"><label>Déform. (près)</label><input type="range" class="fx-sub" data-k="warp" min="0" max="100" value="55"></div>
       </div>
     </div>
-    <div class="effect" data-effect="faceDominance">
-      <div class="effect-head">
-        <span class="name">Visage dominant / surplombant</span>
-        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
-      </div>
-      <div class="sub-sliders">
-        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="70"></div>
-        <div class="sub-row"><label>Seuil proche</label><input type="range" class="fx-sub" data-k="threshold" min="0" max="100" value="45"></div>
-        <div class="sub-row"><label>Sensibilité hauteur</label><input type="range" class="fx-sub" data-k="vertical" min="0" max="100" value="65"></div>
-        <div class="sub-row"><label>Assombrissement</label><input type="range" class="fx-sub" data-k="darkness" min="0" max="100" value="45"></div>
-        <div class="sub-row"><label>Déformation</label><input type="range" class="fx-sub" data-k="stretch" min="0" max="100" value="55"></div>
-      </div>
-    </div>
     <div class="effect" data-effect="depth">
       <div class="effect-head">
         <span class="name">Distances &amp; préhension (diplopie)</span>
@@ -628,18 +615,6 @@ input:checked + .slider-toggle:before{transform:translateX(18px); background:var
         <div class="sub-row"><label>Décalage X</label><input type="range" class="fx-sub" data-k="offX" min="0" max="100" value="50"></div>
         <div class="sub-row"><label>Décalage Y</label><input type="range" class="fx-sub" data-k="offY" min="0" max="100" value="50"></div>
         <div class="sub-row"><label>Miroir X</label><input type="range" class="fx-sub" data-k="mirror" min="0" max="1" value="0"></div>
-      </div>
-    </div>
-    <div class="effect" data-effect="handScale">
-      <div class="effect-head">
-        <span class="name">Mains volumineuses (mains uniquement)</span>
-        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
-      </div>
-      <div class="sub-sliders">
-        <div class="sub-row"><label>Grossissement</label><input type="range" class="fx-sub" data-k="scale" min="0" max="100" value="55"></div>
-        <div class="sub-row"><label>Zone</label><input type="range" class="fx-sub" data-k="zone" min="0" max="100" value="55"></div>
-        <div class="sub-row"><label>Opacité</label><input type="range" class="fx-sub" data-k="opacity" min="0" max="100" value="75"></div>
-        <div class="sub-row"><label>Déformation</label><input type="range" class="fx-sub" data-k="bulge" min="0" max="100" value="35"></div>
       </div>
     </div>
     <div class="effect" data-effect="unstable">
@@ -871,10 +846,8 @@ const state = {
   halluc:   { on:false, frequency:35, intensity:50 },
   distort:  { on:false, amplitude:30, speed:25 },
   latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 },
-  handScale:{ on:false, scale:55, zone:55, opacity:75, bulge:35 },
   depth:    { on:false, separation:45, scale:40 },
   face:     { on:false, threshold:45, blur:55, warp:55 },
-  faceDominance:{ on:false, intensity:70, threshold:45, vertical:65, darkness:45, stretch:55 },
 
   /* --- Troubles visuels (hors démence, cumulables) --- */
   acuity:      { on:false, amount:40 },
@@ -889,7 +862,7 @@ const state = {
   retinopathy: { on:false, count:40, size:40, intensity:60 }
 };
 
-const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','handScale','depth','face','faceDominance'];
+const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face'];
 const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy'];
 /* currentTab supprimé (v7.1) : les modules A/B sont désormais réellement
    indépendants — plus aucun bouton principal ne dépend d'un onglet. */
@@ -1067,6 +1040,16 @@ function resize(){
 window.addEventListener('resize', resize);
 resize();
 
+/* ---------- Orientation des champs latéralisés ----------
+   Les pertes latéralisées (œil / hémianopsie / quadranopsie) doivent rester du
+   bon CÔTÉ pour l'utilisateur. Le masque est calculé dans le repère du canvas ;
+   si la texture caméra n'a pas la même orientation que le canvas (ex. écran
+   tourné en portrait mais flux caméra resté en paysage), le masque part de
+   travers → "à droite" devient "en bas". On compense d'un quart de tour.
+   Si le côté te paraît inversé sur ton appareil, passe INVERT_FIELD_ROT à true. */
+const INVERT_FIELD_ROT = false;
+let fieldRotIndex = 0;
+
 const VERT = `#version 300 es
 in vec2 aPos;
 out vec2 vUv;
@@ -1110,6 +1093,8 @@ uniform float uCataractOn, uCataractAmt;
 uniform float uEyeOn, uEyeSide, uEyeAmt;
 uniform float uHemiOn, uHemiSide, uHemiSoft, uHemiOpacity;
 uniform float uQuadOn, uQuad, uQuadOpacity;
+// Orientation physique de l'écran (0,1,2,3 => 0,90,180,270°) pour les champs latéralisés
+uniform float uFieldRot;
 // Glaucome / rétinite pigmentaire
 uniform float uGlauOn, uGlauDiameter, uGlauOpacity;
 uniform float uRpOn, uRpDiameter, uRpDim;
@@ -1117,6 +1102,17 @@ uniform float uRpOn, uRpDiameter, uRpDim;
 vec2 fitUv(vec2 uv){
   vec2 c = (uv-0.5)*uAspectFix + 0.5;
   return c;
+}
+
+// Réoriente le repère des champs latéralisés (œil/hémi/quadran) selon
+// l'orientation PHYSIQUE de l'écran, pour que "droite" reste le bord droit
+// tel que l'utilisateur tient l'appareil, même si le rendu est en paysage.
+vec2 rotField(vec2 uv){
+  vec2 p = uv - 0.5;
+  if(uFieldRot > 2.5)      p = vec2( p.y, -p.x); // 270°
+  else if(uFieldRot > 1.5) p = -p;               // 180°
+  else if(uFieldRot > 0.5) p = vec2(-p.y,  p.x); // 90°
+  return p + 0.5;
 }
 
 vec3 sampleVideo(vec2 uv){
@@ -1287,14 +1283,16 @@ void main(){
 
   // --- Perte d'un œil : assombrissement d'un demi-champ ---
   if(uEyeOn > 0.5){
-    float edge = uEyeSide < 0.5 ? uv.x : (1.0-uv.x);
+    vec2 fuv = rotField(uv);
+    float edge = uEyeSide < 0.5 ? fuv.x : (1.0-fuv.x);
     float m = 1.0 - smoothstep(0.42, 0.58, edge);
     col = mix(col, col*0.12, m * uEyeAmt);
   }
 
   // --- Hémianopsie : perte franche d'un demi-champ ---
   if(uHemiOn > 0.5){
-    float edge = uHemiSide < 0.5 ? uv.x : (1.0-uv.x);
+    vec2 fuv = rotField(uv);
+    float edge = uHemiSide < 0.5 ? fuv.x : (1.0-fuv.x);
     float soft = 0.04 + uHemiSoft * 0.25;
     float m = 1.0 - smoothstep(0.5-soft, 0.5+soft, edge);
     col = mix(col, vec3(0.0), m * uHemiOpacity);
@@ -1302,10 +1300,11 @@ void main(){
 
   // --- Quadranopsie : perte d'un quadrant du champ ---
   if(uQuadOn > 0.5){
+    vec2 fuv = rotField(uv);
     bool leftHalf = (uQuad < 0.5 || (uQuad > 1.5 && uQuad < 2.5));
     bool topHalf  = (uQuad < 1.5);
-    float ex = leftHalf ? uv.x : (1.0-uv.x);
-    float ey = topHalf ? (1.0-uv.y) : uv.y;
+    float ex = leftHalf ? fuv.x : (1.0-fuv.x);
+    float ey = topHalf ? (1.0-fuv.y) : fuv.y;
     float mx = 1.0 - smoothstep(0.42, 0.58, ex);
     float my = 1.0 - smoothstep(0.42, 0.58, ey);
     col = mix(col, vec3(0.0), mx*my * uQuadOpacity);
@@ -1361,7 +1360,7 @@ const U = {};
  'uDmlaOn','uDmlaDiam','uDmlaAmt','uCataractOn','uCataractAmt',
  'uEyeOn','uEyeSide','uEyeAmt',
  'uHemiOn','uHemiSide','uHemiSoft','uHemiOpacity',
- 'uQuadOn','uQuad','uQuadOpacity',
+ 'uQuadOn','uQuad','uQuadOpacity','uFieldRot',
  'uGlauOn','uGlauDiameter','uGlauOpacity',
  'uRpOn','uRpDiameter','uRpDim',
  'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
@@ -1522,7 +1521,7 @@ function startRenderLoop(useFallback){
   let lastGoodTime = 0;
   let lastHandDetect = 0;
   function detectHands(t){
-    const wantHands = demencesEnabled && ((state.latency.on && state.latency.global <= 0.5) || state.depth.on || state.handScale.on);
+    const wantHands = demencesEnabled && ((state.latency.on && state.latency.global <= 0.5) || state.depth.on);
     if(!handTrackingReady || useFallback || !wantHands){
       handBoxes = []; lastGoodBoxes = [];
       if(handStatusEl && state.latency.on && state.latency.global > 0.5){
@@ -1641,7 +1640,7 @@ function startRenderLoop(useFallback){
   let faceBoxes = [];
   let lastFaceGood = [], lastFaceGoodT = 0, lastFaceDetect = 0;
   function detectFaces(t){
-    if(!faceTrackingReady || useFallback || !demencesEnabled || (!state.face.on && !state.faceDominance.on)){
+    if(!faceTrackingReady || useFallback || !demencesEnabled || !state.face.on){
       faceBoxes = []; lastFaceGood = []; return;
     }
     if(t - lastFaceDetect < 90) return; // ~11 détections/s
@@ -1735,78 +1734,6 @@ function startRenderLoop(useFallback){
     });
   }
 
-  /* ---------- Visage dominant / surplombant (indépendant de l'effet "face") ----------
-     Réutilise faceBoxes (MediaPipe FaceDetector). N'entre en jeu que si un visage est
-     PROCHE (grande taille) ET HAUT dans l'image. Un visage proche mais à hauteur du
-     regard (personne accroupie face à l'utilisateur) annule progressivement l'effet. */
-  const fdPatch = document.createElement('canvas'); fdPatch.width=256; fdPatch.height=256;
-  const fdPatchCtx = fdPatch.getContext('2d');
-  const fdOut = document.createElement('canvas'); fdOut.width=256; fdOut.height=256;
-  const fdOutCtx = fdOut.getContext('2d');
-
-  function drawFaceDominance(t, ax, ay){
-    if(!demencesEnabled || !state.faceDominance.on || faceBoxes.length===0 || useFallback || !video.videoWidth) return;
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const nearThresh = 0.14 + (state.faceDominance.threshold/100)*0.30; // taille visage => "proche"
-    const vSens      = 0.5  + (state.faceDominance.vertical/100)*1.5;    // sensibilité à la hauteur
-    const intensity  = state.faceDominance.intensity/100;
-    const PW = fdPatch.width, PH = fdPatch.height;
-
-    faceBoxes.forEach(f=>{
-      // proximity : 0 au seuil, 1 quand très proche
-      const proximity = Math.min(1, Math.max(0, (f.h - nearThresh) / 0.35));
-      // verticalDominance : 1 si visage haut dans l'image, 0 dès qu'il revient à hauteur du regard (cy≈0.5) ou plus bas
-      const verticalDominance = Math.min(1, Math.max(0, (0.5 - f.cy) / 0.5) * vSens);
-      const dominance = proximity * verticalDominance * intensity;      // score global (progressif)
-      if(dominance < 0.05) return;                                      // pas proche / pas haut => aucune menace
-
-      const sw = f.w*vw, sh = f.h*vh;
-      if(sw<4||sh<4) return;
-      const mx = sw*0.30, my = sh*0.30;                                 // marge (capte menton/front)
-      fdPatchCtx.clearRect(0,0,PW,PH);
-      fdPatchCtx.drawImage(video, (f.cx-f.w/2)*vw-mx, (f.cy-f.h/2)*vh-my, sw+2*mx, sh+2*my, 0,0,PW,PH);
-
-      // Déformation verticale : bas du visage élargi + tiré vers le bas => impression d'écrasement
-      fdOutCtx.clearRect(0,0,PW,PH);
-      const stretchAmt = (state.faceDominance.stretch/100) * dominance;
-      const slices = 28, sliceH = PH/slices;
-      for(let i=0;i<slices;i++){
-        const ny = i/slices;                                           // 0 haut .. 1 bas
-        const widen = 1 + stretchAmt * 0.55 * ny;                      // bas plus large
-        const droop = stretchAmt * 14 * ny;                            // bas tiré vers le bas
-        fdOutCtx.drawImage(fdPatch, 0, i*sliceH, PW, sliceH,
-                           (PW*(1-widen))/2, i*sliceH + droop, PW*widen, sliceH+1);
-      }
-      // Assombrissement (menace)
-      fdOutCtx.globalAlpha = (state.faceDominance.darkness/100) * dominance * 0.6;
-      fdOutCtx.fillStyle = '#000'; fdOutCtx.fillRect(0,0,PW,PH);
-      fdOutCtx.globalAlpha = 1;
-      // Masque elliptique (aucun rectangle visible)
-      fdOutCtx.globalCompositeOperation = 'destination-in';
-      const g = fdOutCtx.createRadialGradient(PW/2,PH*0.46,PW*0.26, PW/2,PH*0.5,PW*0.5);
-      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(0.72,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
-      fdOutCtx.fillStyle = g; fdOutCtx.fillRect(0,0,PW,PH);
-      fdOutCtx.globalCompositeOperation = 'source-over';
-
-      // Rendu écran : visage plus grand que nature, surplombant légèrement par le haut
-      const p = videoNormToScreen(f.cx, f.cy, ax, ay);
-      const sizeMult = 1.5 + dominance * 1.3;                          // « plus grand que nature »
-      const dW = Math.max(f.w/ax, f.h/ay) * fxcanvas.width * sizeMult;
-      const loomY = dW * 0.10 * dominance;                            // décalé vers le bas => semble surplomber
-
-      // Vignette / ombre portée autour du visage (dessinée d'abord)
-      fxctx.save();
-      const vg = fxctx.createRadialGradient(p.x, p.y+loomY, dW*0.35, p.x, p.y+loomY, dW*0.85);
-      vg.addColorStop(0,'rgba(0,0,0,0)');
-      vg.addColorStop(1,'rgba(0,0,0,'+(0.55*dominance).toFixed(3)+')');
-      fxctx.fillStyle = vg;
-      fxctx.fillRect(p.x-dW, p.y+loomY-dW, dW*2, dW*2);
-      fxctx.restore();
-
-      fxctx.drawImage(fdOut, p.x-dW/2, p.y+loomY-dW/2, dW, dW);
-    });
-  }
-
   /* ---------- Diplopie / erreur de distance (sur les mains détectées) ---------- */
   const depthPatch = document.createElement('canvas'); depthPatch.width=220; depthPatch.height=220;
   const depthPatchCtx = depthPatch.getContext('2d');
@@ -1836,69 +1763,6 @@ function startRenderLoop(useFallback){
       fxctx.globalAlpha = 0.45;                            // fantôme redimensionné (mauvaise distance)
       const dW2 = dW*scaleErr;
       fxctx.drawImage(depthPatch, p.x-dW2/2-dx, p.y-dW2/2, dW2, dW2);
-      fxctx.restore();
-    });
-  }
-
-  /* ---------- Mains volumineuses (grossissement dédié, mains uniquement) ----------
-     Indépendant du retard de préhension (latency) et de la diplopie (depth).
-     Source = dernière image du ring (temps réel), donc compatible caméra ET fallback. */
-  const hsCanvas = document.createElement('canvas'); hsCanvas.width=280; hsCanvas.height=280;
-  const hsCtx = hsCanvas.getContext('2d');
-  const hsBulge = document.createElement('canvas'); hsBulge.width=280; hsBulge.height=280;
-  const hsBulgeCtx = hsBulge.getContext('2d');
-
-  // Loupe centrale : renforce l'impression de volume au centre de la main (bombé léger).
-  function drawHandBulge(sc, sx, sy, sw, sh, PW, PH, bulge){
-    hsCtx.drawImage(sc, sx, sy, sw, sh, 0, 0, PW, PH);            // base : zone complète
-    const frac = 0.6;                                            // portion centrale prélevée
-    const mag  = 1 + bulge*0.7;                                  // grossissement local du centre
-    hsBulgeCtx.clearRect(0,0,PW,PH);
-    hsBulgeCtx.drawImage(sc, sx+sw*(1-frac)/2, sy+sh*(1-frac)/2, sw*frac, sh*frac,
-                             (PW-PW*frac*mag)/2, (PH-PH*frac*mag)/2, PW*frac*mag, PH*frac*mag);
-    hsBulgeCtx.globalCompositeOperation='destination-in';
-    const gg = hsBulgeCtx.createRadialGradient(PW/2,PH/2,PW*0.04, PW/2,PH/2,PW*frac*0.5);
-    gg.addColorStop(0,'rgba(0,0,0,1)'); gg.addColorStop(1,'rgba(0,0,0,0)');
-    hsBulgeCtx.fillStyle=gg; hsBulgeCtx.fillRect(0,0,PW,PH);
-    hsBulgeCtx.globalCompositeOperation='source-over';
-    hsCtx.drawImage(hsBulge,0,0);                                // fond bombé par-dessus
-  }
-
-  function drawHandScale(t, ax, ay){
-    if(!demencesEnabled || !state.handScale.on || handBoxes.length===0 || !ring || ring.filled<1) return;
-    const cur = ring.slots[(ring.write - 1 + RING_SIZE) % RING_SIZE]; // image courante
-    if(!cur || cur.t < 0) return;
-
-    const grow    = 1.15 + (state.handScale.scale/100) * 0.85;   // 1,15x → 2,0x : la main paraît réellement plus grosse
-    const zoneMul = 1.0  + (state.handScale.zone/100)  * 1.2;    // largeur de zone capturée autour de la main
-    const opacity = 0.25 + (state.handScale.opacity/100)* 0.7;   // opacité de la surcouche
-    const bulge   =        (state.handScale.bulge/100);          // intensité du bombé central
-    const PW = hsCanvas.width, PH = hsCanvas.height;
-
-    handBoxes.forEach(box=>{
-      const zw = Math.min(1, box.w*zoneMul), zh = Math.min(1, box.h*zoneMul);
-      const sx = (box.cx - zw/2)*ring.w, sy = (box.cy - zh/2)*ring.h;
-      const sw = zw*ring.w, sh = zh*ring.h;
-      if(sw<4||sh<4) return;
-
-      // 1-2-3) copie de la zone (avec bombé optionnel) dans le patch
-      hsCtx.clearRect(0,0,PW,PH);
-      if(bulge > 0.02) drawHandBulge(cur.canvas, sx, sy, sw, sh, PW, PH, bulge);
-      else hsCtx.drawImage(cur.canvas, sx, sy, sw, sh, 0, 0, PW, PH);
-
-      // 4) masque radial pour fondre les bords
-      hsCtx.globalCompositeOperation='destination-in';
-      const g = hsCtx.createRadialGradient(PW/2,PH/2,PW*0.30, PW/2,PH/2,PW*0.5);
-      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(0.7,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
-      hsCtx.fillStyle=g; hsCtx.fillRect(0,0,PW,PH);
-      hsCtx.globalCompositeOperation='source-over';
-
-      // 5) superposition agrandie, centrée au même emplacement
-      const p = videoNormToScreen(box.cx, box.cy, ax, ay);
-      const dW = Math.max(zw/ax, zh/ay) * fxcanvas.width * grow;
-      fxctx.save();
-      fxctx.globalAlpha = opacity;
-      fxctx.drawImage(hsCanvas, p.x-dW/2, p.y-dW/2, dW, dW);
       fxctx.restore();
     });
   }
@@ -1950,6 +1814,11 @@ function startRenderLoop(useFallback){
     gl.useProgram(prog);
     gl.uniform1f(U.uTime, t*0.001);
     gl.uniform2f(U.uAspectFix, ax, ay);
+    // Écart d'orientation entre la texture caméra et le canvas → quart de tour
+    const canvasPortrait = glcanvas.height > glcanvas.width;
+    const videoPortrait  = vh > vw;
+    fieldRotIndex = (canvasPortrait !== videoPortrait) ? (INVERT_FIELD_ROT ? 3 : 1) : 0;
+    gl.uniform1f(U.uFieldRot, fieldRotIndex);
 
     gl.uniform1f(U.uBlurOn, (demencesEnabled&&state.blur.on)?1:0);
     gl.uniform1f(U.uBlurIntensity, state.blur.intensity/100);
@@ -2025,9 +1894,7 @@ function startRenderLoop(useFallback){
     drawScotomas();        // scotomes fixes (rétinopathie)
     drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
     drawHandLag(t, ax, ay);// retard de préhension
-    drawHandScale(t, ax, ay);// mains volumineuses (grossissement)
     drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
-    drawFaceDominance(t, ax, ay);// visage dominant / surplombant
   }
   requestAnimationFrame(frame);
 }
@@ -2087,7 +1954,6 @@ applyStagePreset(15);
     acuity:{d:'Diminution globale de l\u2019acuité visuelle (flou uniforme).',r:'Réf. symptôme à valider'},
     cataract:{d:'Voile laiteux, éblouissement et perte de contraste typiques de la cataracte.',r:'Réf. symptôme à valider'},
     face:{d:'Difficulté à reconnaître les visages : flou à distance, déformation de près (prosopagnosie / prosopométamorphopsie).',r:'Réf. symptôme à valider'},
-    faceDominance:{d:'Perception de surplomb et de proximité excessive : un visage proche et en position haute paraît dominant et menaçant (menace sociale). L\\u2019effet diminue quand l\\u2019interlocuteur se met à hauteur du regard.',r:'À valider médicalement'},
     depth:{d:'Erreur d\u2019appréciation des distances et diplopie : la préhension des objets devient imprécise.',r:'Réf. symptôme à valider'},
     fog:{d:'Brouillard cognitif : ralentissement, dédoublement et perte de netteté de la scène.',r:'Réf. symptôme à valider'},
     latency:{d:'Retard de traitement visuel : l\u2019image des mains parvient en décalage, gênant les gestes.',r:'Réf. symptôme à valider'},
