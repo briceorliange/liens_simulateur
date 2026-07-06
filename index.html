@@ -2023,7 +2023,19 @@ function startRenderLoop(useFallback){
       const vw = video.videoWidth||1, vh = video.videoHeight||1;
       const boxes = (res.detections||[]).map(d=>{
         const b = d.boundingBox;
-        return { cx:(b.originX+b.width/2)/vw, cy:(b.originY+b.height/2)/vh, w:b.width/vw, h:b.height/vh };
+        const cx=(b.originX+b.width/2)/vw, cy=(b.originY+b.height/2)/vh, w=b.width/vw, h=b.height/vh;
+        /* [v8.1] Keypoints blaze_face (ordre : œil D, œil G, nez, bouche,
+           oreille D, oreille G) → coordonnées 0..1 DANS le patch visage
+           (le patch inclut une marge mx=0.25w, my=0.28h ; cf. drawFaces).
+           Sert à poser les ombres orbitales/portées au bon endroit. */
+        const kp = d.keypoints || [];
+        const toPatch = k => k ? {
+          x: (k.x - (cx - w/2 - 0.25*w)) / (w*1.5),
+          y: (k.y - (cy - h/2 - 0.28*h)) / (h*1.56)
+        } : null;
+        return { cx, cy, w, h,
+                 eyeR:toPatch(kp[0]), eyeL:toPatch(kp[1]),
+                 nose:toPatch(kp[2]),  mouth:toPatch(kp[3]) };
       });
       if(boxes.length>0){ lastFaceGood = boxes; lastFaceGoodT = t; }
     }catch(e){ /* frame transitoire ignorée */ }
@@ -2092,6 +2104,10 @@ function startRenderLoop(useFallback){
   const faceTracks = [];   // suivi temporel des visages (position lissée, vitesses, enveloppe de domination)
   const handTracks = [];   // suivi temporel des mains (retard moteur, enveloppe d'effet)
   const handSliceH = new Float32Array(16); // hauteurs de tranches réutilisées (raccourcissement des doigts)
+  // [v8.1] Blob d'ombre douce PRÉCALCULÉ (dégradé radial noir→transparent).
+  // Tamponné (drawImage) aux yeux / nez / menton → relief menaçant, zéro
+  // createRadialGradient dans la boucle.
+  const shadowBlob = makeRadialMask(128, 0.0, 0.5);
 
   const facePatch = document.createElement('canvas'); facePatch.width=256; facePatch.height=256;
   const facePatchCtx = facePatch.getContext('2d');
@@ -2232,6 +2248,44 @@ function startRenderLoop(useFallback){
         faceOutCtx.fillRect(0,0,PW,PH);
         faceOutCtx.globalAlpha = clamp01(0.28*dom);     // vignettage autour du visage ∝ domination
         faceOutCtx.drawImage(faceVignette, 0, 0);
+        faceOutCtx.globalAlpha = 1;
+
+        /* ---- [v8.1] OMBRES CIBLÉES (menace crédible, ∝ domination) ---------
+           Tampons du blob précalculé, positionnés via les keypoints du
+           détecteur. Ombres ORBITALES (yeux enfoncés) + PORTÉES vers le bas
+           (nez, menton) = éclairage en contre-plongée. Le léger tremblement
+           lent (slowNoise) évite tout figement. Fallback sur des positions
+           anatomiques moyennes si keypoints indisponibles. */
+        const shN = slowNoise(t, 0.0012, i*5.1);
+        const stampShadow = (nx, ny, rad, a)=>{
+          const S = PW*rad, jitter = shN*PW*0.006;
+          faceOutCtx.globalAlpha = clamp01(a);
+          faceOutCtx.drawImage(shadowBlob, nx*PW - S/2 + jitter, ny*PH - S/2, S, S);
+        };
+        const eR = f.eyeR, eL = f.eyeL, no = f.nose, mo = f.mouth;
+        // Orbites : ombre un peu sous chaque œil pour creuser l'arcade
+        stampShadow(eR ? eR.x : 0.38, (eR ? eR.y : 0.40) + 0.02, 0.30, dom*0.55);
+        stampShadow(eL ? eL.x : 0.62, (eL ? eL.y : 0.40) + 0.02, 0.30, dom*0.55);
+        // Barre inter-sourcils (front qui surplombe)
+        stampShadow(0.5, ((eR&&eL) ? (eR.y+eL.y)/2 : 0.36) - 0.06, 0.42, dom*0.30);
+        // Ombre portée sous le nez (contre-plongée)
+        stampShadow(no ? no.x : 0.5, (no ? no.y : 0.56) + 0.05, 0.26, dom*0.40);
+        // Ombre sous le menton / mâchoire
+        stampShadow(mo ? mo.x : 0.5, (mo ? mo.y : 0.74) + 0.08, 0.46, dom*0.45);
+        faceOutCtx.globalAlpha = 1;
+
+        /* ---- [v8.1] Teint blafard : désaturation + refroidissement au pic --
+           1 seul rectangle en 'saturation' (ternit) + 1 voile froid en
+           'multiply'. Psychologiquement plus pesant que le noir seul. */
+        faceOutCtx.globalCompositeOperation = 'saturation';
+        faceOutCtx.globalAlpha = clamp01(dom*0.5);
+        faceOutCtx.fillStyle = '#808080';               // gris neutre = désature la zone
+        faceOutCtx.fillRect(0,0,PW,PH);
+        faceOutCtx.globalCompositeOperation = 'multiply';
+        faceOutCtx.globalAlpha = clamp01(dom*0.18);
+        faceOutCtx.fillStyle = '#b8c4d0';               // bleu-gris froid = teint cireux
+        faceOutCtx.fillRect(0,0,PW,PH);
+        faceOutCtx.globalCompositeOperation = 'source-over';
         faceOutCtx.globalAlpha = 1;
       } else {
         // --- Flou (visage lointain), inchangé ; l'enveloppe redescend en douceur ---
