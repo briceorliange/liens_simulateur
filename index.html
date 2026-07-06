@@ -1614,6 +1614,12 @@ void main(){
   //      Sévère (~0.90) : scotome large quasi opaque, taches internes, forte déformation.
   //  La périphérie reste toujours intacte. Coût : quelques appels de value noise
   //  (pas de texture, pas d'allocation, compatible mode casque).
+  // [DMLA v9.2] Retouches fines par stade :
+  //  • Léger  : gêne centrale subtile (contraste-, voile désaturé, micro-déformation) ;
+  //  • Modéré : métamorphopsie resserrée sur la macula (zone réduite + enveloppe pow),
+  //             centre un peu moins lisible ;
+  //  • Sévère : scotome moins compact — variations internes fortes, lacunes basse
+  //             fréquence, cœur gris-brun (pas noir), contour un peu plus déchiqueté.
   if(uDmlaOn > 0.5){
     float amt  = uDmlaAmt;
     float d    = uDmlaDiam * 0.4 + 0.02;   // rayon de base du scotome
@@ -1622,6 +1628,14 @@ void main(){
     float ang = atan(q.y, q.x);
     float slow = uTime * 0.0004;             // dérive très lente (quasi statique)
 
+    // [DMLA v9.2] Poids continus des 3 stades (pas de rupture entre presets) :
+    //   mild     ≈ 1 vers amt 0.40 (léger)   → gêne centrale subtile, pas de tache ;
+    //   moderate ≈ 1 vers amt 0.65 (modéré)  → effet recentré sur la macula ;
+    //   severe   ≈ 1 vers amt 0.90 (sévère)  → scotome marbré, lacunaire, moins compact.
+    float mild     = 1.0 - smoothstep(0.45, 0.60, amt);
+    float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - smoothstep(0.75, 0.90, amt));
+    float severe   = smoothstep(0.75, 0.90, amt);
+
     // [DMLA v9] Bord irrégulier : rayon modulé par un bruit angulaire 2 octaves.
     // L'irrégularité augmente avec la sévérité (léger ≈ halo doux, sévère ≈ tache déchiquetée).
     // [DMLA v9.1] Contour "patatoïde" et non rayonnant : basse fréquence angulaire
@@ -1629,18 +1643,24 @@ void main(){
     vec2 aDir = vec2(cos(ang), sin(ang));
     float edgeN = dmlaNoise(aDir*2.2 + 7.3 + slow) * 0.70
                 + dmlaNoise(q*8.0  + 3.1)          * 0.30;
-    float irr  = 0.08 + amt * 0.22;
+    float irr  = 0.08 + amt * 0.22 + severe * 0.06;     // [DMLA v9.2] contour sévère un peu plus déchiqueté
     float dEff = d * (1.0 + (edgeN - 0.5) * 2.0 * irr);  // rayon effectif local
 
-    float zone = dEff * 1.6;                 // zone de métamorphopsie autour du scotome
+    // [DMLA v9.2] Zone de métamorphopsie RESSERRÉE en modéré (et un peu en sévère) :
+    // la périphérie de la page reste stable, la déformation se concentre sur la macula.
+    float zone = dEff * (1.6 - 0.35*moderate - 0.15*severe);
     if(rr < zone){
       vec2 dir  = normalize(uv - center);
       // enveloppe : nulle au bord, max dans l'anneau, réduite au centre exact
       float env = (1.0 - smoothstep(zone*0.7, zone, rr)) * smoothstep(0.0, zone*0.2, rr);
+      // [DMLA v9.2] Chute plus rapide de la déformation en s'éloignant du centre
+      // (surtout en modéré) → les lignes proches du centre ondulent, pas toute la page.
+      env = pow(env, 1.0 + 0.5*moderate + 0.2*severe);
 
       // 1) [DMLA v9] MÉTAMORPHOPSIE — amplitude qui croît nettement avec la sévérité.
       float ripple = sin(rr*22.0 - slow*2.0)*0.6 + sin(rr*13.0 + ang*2.0 + slow*1.5)*0.4;
-      float wamp = amt * (0.010 + amt*0.014) * env;   // léger: subtil / sévère: bien visible
+      // [DMLA v9.2] + micro-déformation plancher en léger (fixation "moins fiable")
+      float wamp = (amt * (0.010 + amt*0.014) + mild*0.0015) * env;
       vec2 duv  = dir * (wamp * ripple);
       duv += vec2(-dir.y, dir.x) * wamp * 0.5 * sin(ang*3.0 + rr*18.0 + slow); // torsion douce
       vec2 wuv = uv + duv;
@@ -1659,7 +1679,18 @@ void main(){
         vec3 blurred = acc / n;
         float g = dot(blurred, vec3(0.3,0.59,0.11));
         vec3 lowC = mix(blurred, vec3(g), 0.35 + amt*0.4) * (0.88 - amt*0.12);
-        col = mix(col, lowC, mask * amt);
+        // [DMLA v9.2] Centre un peu plus difficile à lire en modéré
+        col = mix(col, lowC, mask * min(amt + moderate*0.12, 1.0));
+      }
+
+      // 2bis) [DMLA v9.2] LÉGER : gêne centrale très subtile — perte de contraste
+      // et légère désaturation au point de fixation. Pas de tache, pas de scotome.
+      if(mild > 0.001){
+        float cMask = 1.0 - smoothstep(dEff*0.15, dEff*0.70, rr);
+        vec3 softc = (col - 0.5) * 0.86 + 0.5;              // contraste local -14%
+        float gm = dot(softc, vec3(0.3,0.59,0.11));
+        softc = mix(softc, vec3(gm), 0.12);                 // voile désaturé discret
+        col = mix(col, softc, cMask * mild * 0.9);
       }
 
       // 3) [DMLA v9] SCOTOME ORGANIQUE : voile → tache sombre marbrée, jamais noir uniforme.
@@ -1674,21 +1705,27 @@ void main(){
 
       // Opacité globale : léger = voile translucide, sévère = quasi opaque.
       float dens = core * smoothstep(0.12, 0.95, amt);
-      dens *= 0.86 + 0.14 * tex;                       // [v9.1] variation interne adoucie
+      // [DMLA v9.2] Densité interne : marbrures discrètes en léger/modéré,
+      // variations fortes en sévère (zone abîmée, jamais bloc uniforme).
+      dens *= mix(0.86 + 0.14 * tex, mix(0.72, 1.05, tex), severe);
+      // [DMLA v9.2] Lacunes basse fréquence en sévère : zones où le scotome
+      // laisse filtrer un peu d'image → aspect brouillé et lacunaire.
+      dens *= 1.0 - severe * 0.35 * smoothstep(0.55, 0.85, dmlaNoise(q*9.0 + 21.0));
 
       // Couleur : gris voilé (léger) → brun-gris sombre désaturé (sévère).
-      vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.11, 0.095, 0.085),
+      // [DMLA v9.2] Cœur sévère légèrement éclairci (gris-brun, pas noir compact).
+      vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.13, 0.11, 0.095),
                       smoothstep(0.30, 0.90, amt));
       veil *= 0.91 + 0.18 * tex;                       // [v9.1] marbrures plus subtiles
       col = mix(col, veil, clamp(dens, 0.0, 1.0));
 
       // 4) [DMLA v9] Micro-zones opaques (stade sévère uniquement) :
       // ilots plus denses et sombres à l'intérieur du scotome, bords tachetés.
-      float sev = smoothstep(0.72, 0.90, amt);
-      if(sev > 0.001){
+      // [DMLA v9.2] seuil aligné sur le poids severe (0.75 -> 0.90)
+      if(severe > 0.001){
         // [v9.1] Îlots plus doux : transition large + opacité réduite (présents mais discrets)
         float spots = smoothstep(0.50, 0.92, dmlaNoise(q*18.0 + 2.7));
-        col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2*tex), core * spots * sev * 0.45);
+        col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2*tex), core * spots * severe * 0.45);
       }
     }
   }
