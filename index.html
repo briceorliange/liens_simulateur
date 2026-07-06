@@ -1624,10 +1624,12 @@ void main(){
 
     // [DMLA v9] Bord irrégulier : rayon modulé par un bruit angulaire 2 octaves.
     // L'irrégularité augmente avec la sévérité (léger ≈ halo doux, sévère ≈ tache déchiquetée).
+    // [DMLA v9.1] Contour "patatoïde" et non rayonnant : basse fréquence angulaire
+    // dominante + bruit positionnel 2D (varie aussi avec le rayon → pas de rayons).
     vec2 aDir = vec2(cos(ang), sin(ang));
-    float edgeN = dmlaNoise(aDir*3.0 + 7.3 + slow) * 0.65
-                + dmlaNoise(aDir*7.0 + 3.1)        * 0.35;
-    float irr  = 0.10 + amt * 0.28;
+    float edgeN = dmlaNoise(aDir*2.2 + 7.3 + slow) * 0.70
+                + dmlaNoise(q*8.0  + 3.1)          * 0.30;
+    float irr  = 0.08 + amt * 0.22;
     float dEff = d * (1.0 + (edgeN - 0.5) * 2.0 * irr);  // rayon effectif local
 
     float zone = dEff * 1.6;                 // zone de métamorphopsie autour du scotome
@@ -1672,20 +1674,21 @@ void main(){
 
       // Opacité globale : léger = voile translucide, sévère = quasi opaque.
       float dens = core * smoothstep(0.12, 0.95, amt);
-      dens *= 0.78 + 0.22 * tex;                       // variation de densité interne
+      dens *= 0.86 + 0.14 * tex;                       // [v9.1] variation interne adoucie
 
       // Couleur : gris voilé (léger) → brun-gris sombre désaturé (sévère).
       vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.11, 0.095, 0.085),
                       smoothstep(0.30, 0.90, amt));
-      veil *= 0.85 + 0.30 * tex;                       // marbrures visibles dans la tache
+      veil *= 0.91 + 0.18 * tex;                       // [v9.1] marbrures plus subtiles
       col = mix(col, veil, clamp(dens, 0.0, 1.0));
 
       // 4) [DMLA v9] Micro-zones opaques (stade sévère uniquement) :
       // ilots plus denses et sombres à l'intérieur du scotome, bords tachetés.
       float sev = smoothstep(0.72, 0.90, amt);
       if(sev > 0.001){
-        float spots = smoothstep(0.60, 0.85, dmlaNoise(q*24.0 + 2.7));
-        col = mix(col, vec3(0.055, 0.05, 0.048) * (0.8 + 0.4*tex), core * spots * sev * 0.9);
+        // [v9.1] Îlots plus doux : transition large + opacité réduite (présents mais discrets)
+        float spots = smoothstep(0.50, 0.92, dmlaNoise(q*18.0 + 2.7));
+        col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2*tex), core * spots * sev * 0.45);
       }
     }
   }
