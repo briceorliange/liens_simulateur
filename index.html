@@ -1781,36 +1781,57 @@ function drawHalluc(){
 let scotomaShapes = [];
 let scotomasDirty = true;
 let scotomaDims = {w:0,h:0};
+let scotomaSig = '';   // [v8.2] signature des paramètres → régénère si count/size changent (bug stade)
 function generateScotomas(){
   const w = dfxW, h = dfxH;
   scotomaDims = {w,h};
-  const n = Math.round(2 + (state.retinopathy.count/100) * 14);
+  const cnt = state.retinopathy.count/100, sz = state.retinopathy.size/100;
+  /* [v8.2] Densité fortement croissante : léger ≈ 6 taches, sévère ≈ 46.
+     Courbe quadratique → l'aggravation sévère est nette (le champ se
+     "mite" de plus en plus). */
+  const n = Math.round(4 + (cnt + cnt*cnt) * 21);
+  // Part ramenée vers le centre : croît avec la sévérité → gêne la lecture
+  const centralBias = 0.20 + cnt*0.35;
   scotomaShapes = [];
   for(let i=0;i<n;i++){
-    // ~1 tache sur 4 est ramenée près du centre (scotomes péri/centraux)
-    const nearCenter = Math.random() < 0.25;
-    const cx = nearCenter ? (0.5 + (Math.random()-0.5)*0.35) : Math.random();
-    const cy = nearCenter ? (0.5 + (Math.random()-0.5)*0.35) : Math.random();
+    const nearCenter = Math.random() < centralBias;
+    const cx = nearCenter ? (0.5 + (Math.random()-0.5)*0.40) : Math.random();
+    const cy = nearCenter ? (0.5 + (Math.random()-0.5)*0.40) : Math.random();
     scotomaShapes.push({
       x: cx*w,
       y: cy*h,
-      size: (0.025 + Math.random()*0.06) * Math.min(w,h) * (0.5 + state.retinopathy.size/100), // tailles variables
-      squish: 0.5 + Math.random()*0.9,     // forme allongée irrégulière
-      rot: Math.random()*Math.PI,           // orientation aléatoire → non symétrique
-      lobe: 0.7 + Math.random()*0.5         // léger débord de contour (bords irréguliers)
+      // taille de base plus grande + croissance forte avec 'size' (sévère = grosses plaques)
+      size: (0.03 + Math.random()*0.06) * Math.min(w,h) * (0.6 + sz*1.6),
+      squish: 0.5 + Math.random()*0.9,
+      rot: Math.random()*Math.PI,
+      lobe: 0.7 + Math.random()*0.5,
+      dense: Math.random()                 // [v8.2] certaines taches ont un cœur OPAQUE (angle mort réel)
     });
   }
+  scotomaSig = state.retinopathy.count+'|'+state.retinopathy.size;
   scotomasDirty = false;
 }
 function drawScotomas(){
   if(!visuelEnabled || !state.retinopathy.on) return;
-  if(scotomasDirty || scotomaDims.w!==dfxW || scotomaDims.h!==dfxH) generateScotomas();
-  const alpha = 0.35 + (state.retinopathy.intensity/100) * 0.55;
+  const sig = state.retinopathy.count+'|'+state.retinopathy.size;
+  // Régénère si taille du canvas OU paramètres (count/size) ont changé → vraie diff. modéré/sévère
+  if(scotomasDirty || scotomaDims.w!==dfxW || scotomaDims.h!==dfxH || sig!==scotomaSig) generateScotomas();
+  const inten = state.retinopathy.intensity/100;
+  const alpha = 0.45 + inten * 0.53;                 // plus dense qu'avant
+  // Seuil au-delà duquel une tache reçoit un cœur quasi opaque (bloque la lecture).
+  // Sévère (intensité haute) → beaucoup de cœurs opaques.
+  const opaqueThresh = 1.0 - inten*0.7;
   scotomaShapes.forEach(s=>{
     const grad = dfxCtx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.size);
-    grad.addColorStop(0, `rgba(5,5,5,${alpha})`);
-    grad.addColorStop(0.6, `rgba(5,5,5,${alpha*0.75})`);
-    grad.addColorStop(1, 'rgba(5,5,5,0)');       // bords flous
+    if(s.dense > opaqueThresh){
+      // Angle mort dense : centre presque noir → un mot entier peut disparaître
+      grad.addColorStop(0,   `rgba(3,3,3,${Math.min(0.99, alpha*1.5)})`);
+      grad.addColorStop(0.45,`rgba(3,3,3,${Math.min(0.95, alpha*1.2)})`);
+    } else {
+      grad.addColorStop(0,   `rgba(5,5,5,${alpha})`);
+      grad.addColorStop(0.6, `rgba(5,5,5,${alpha*0.75})`);
+    }
+    grad.addColorStop(1, 'rgba(5,5,5,0)');           // bords flous
     dfxCtx.save();
     dfxCtx.translate(s.x, s.y);
     dfxCtx.rotate(s.rot);
@@ -2755,7 +2776,7 @@ applyStagePreset(15);
          nystagmus:{amplitude:35,frequency:45,saccades:40,motionBlur:25,amount:55} },
     85:{ acuity:{amount:80}, cataract:{amount:82}, photo:{amount:85},
          dmla:{diameter:52,intensity:90}, glaucoma:{diameter:70,opacity:95},
-         retinitis:{diameter:50,dim:85}, retinopathy:{count:70,size:65,intensity:90},
+         retinitis:{diameter:50,dim:85}, retinopathy:{count:88,size:75,intensity:92},
          eye:{amount:95}, hemianopsia:{opacity:95}, quadranopsia:{opacity:92},
          /* Nystagmus sévère : volontairement plafonné pour rester supportable sur téléphone
             (fort mais sans mouvements trop violents — confort de démonstration). */
