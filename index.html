@@ -1584,49 +1584,49 @@ void main(){
   }
 
   // --- DMLA : métamorphopsie (lignes déformées) + scotome central dense ---
-  // [v8.6] Reproduit les symptômes de la grille d'Amsler :
-  //   1. déformation ondulée des lignes droites (métamorphopsie) ;
-  //   2. tache centrale sombre/grise (scotome) ;
-  //   3. flou + perte d'acuité et de contraste.
-  // Tout croît fortement avec l'intensité (stade d'atteinte).
+  // [v8.7] La déformation des lignes est appliquée sur une ZONE ÉLARGIE autour
+  // du centre (les lignes ondulent AUTOUR de la tache, comme sur la grille
+  // d'Amsler), et non au centre exact où le scotome noir la masquerait.
   if(uDmlaOn > 0.5){
-    float d = uDmlaDiam * 0.4 + 0.02;                 // rayon de la zone atteinte
-    float feather = 0.15;
-    // Coordonnées corrigées de l'aspect → zone circulaire (pas ovale en paysage).
-    vec2 q = (uv - center) * uAspectFix;
+    float amt  = uDmlaAmt;
+    float d    = uDmlaDiam * 0.4 + 0.02;   // rayon du scotome (flou/gris/noir)
+    float zone = d * 2.4;                    // zone de métamorphopsie, plus large que le scotome
+    vec2 q = (uv - center) * uAspectFix;     // aspect corrigé → zone circulaire
     float rr = length(q);
-    float ang = atan(q.y, q.x);
-    float mask = 1.0 - smoothstep(d-feather, d, rr);
-    if(mask > 0.001){
-      float amt = uDmlaAmt;
+    if(rr < zone){
+      float ang = atan(q.y, q.x);
+      vec2 dir  = q / max(rr, 1e-4);
+      // enveloppe : forte dans l'anneau autour du centre, s'éteint au bord de la zone
+      float env = 1.0 - smoothstep(zone*0.45, zone, rr);
+      float slow = uTime * 0.0005;
 
-      // 1) MÉTAMORPHOPSIE : déplacement des UV → les lignes droites ondulent.
-      //    - composante radiale (pincement/renflement, comme le centre d'Amsler)
-      //    - composante angulaire (ondulation irrégulière des lignes)
-      //    Animation TRÈS lente (perception qui « respire », pas un effet vidéo).
-      vec2 dir = q / max(rr, 1e-4);
-      float slow = uTime * 0.0006;
-      float ripple = sin(rr*34.0 - slow*3.0) * 0.5 + sin(rr*17.0 + slow*2.0) * 0.5;
-      float wamp = amt * 0.05 * mask;                 // amplitude ∝ intensité et proximité du centre
-      vec2 duv  = dir * (wamp * ripple);              // pincement ondulé vers/à l'opposé du centre
-      duv += vec2(-dir.y, dir.x) * wamp * 0.6 * sin(ang*3.0 + rr*22.0 + slow); // torsion des lignes
-      vec2 wuv = uv - duv / uAspectFix;               // retour en espace UV écran
+      // 1) MÉTAMORPHOPSIE — déplacement des UV (ondulation des lignes droites).
+      //    Fréquences plus élevées + amplitude accrue = ondulation nettement visible.
+      float ripple = sin(rr*70.0 - slow*3.0)*0.6 + sin(rr*33.0 + ang*2.0 + slow*2.0)*0.4;
+      float wamp = amt * 0.10 * env;                 // ∝ intensité (stade)
+      vec2 duv  = dir * (wamp * ripple);              // pincement/renflement ondulé
+      duv += vec2(-dir.y, dir.x) * wamp * 0.7 * sin(ang*4.0 + rr*45.0 + slow); // torsion des lignes
+      vec2 wuv = uv - duv / uAspectFix;
+      // lignes déformées visibles sur TOUTE la zone (y compris hors du scotome)
+      col = mix(col, sampleVideo(wuv), env);
 
-      // 2) Flou + désaturation (perte d'acuité et de contraste) sur les UV déformés.
-      float r = amt * 0.024;
-      vec3 acc = sampleVideo(wuv); float n = 1.0;
-      for(int i=0;i<8;i++){
-        float a = float(i) * 0.785398;
-        vec2 o = vec2(cos(a), sin(a)) * r;
-        acc += sampleVideo(wuv + o); n += 1.0;
+      // 2) Flou + perte d'acuité/contraste, concentrés vers le centre.
+      float mask = 1.0 - smoothstep(d-0.15, d, rr);
+      if(mask > 0.001){
+        float r = amt * 0.024;
+        vec3 acc = sampleVideo(wuv); float n = 1.0;
+        for(int i=0;i<8;i++){
+          float a = float(i) * 0.785398;
+          vec2 o = vec2(cos(a), sin(a)) * r;
+          acc += sampleVideo(wuv + o); n += 1.0;
+        }
+        vec3 blurred = acc / n;
+        float g = dot(blurred, vec3(0.3,0.59,0.11));
+        vec3 lowC = mix(blurred, vec3(g), 0.35 + amt*0.4) * (0.85 - amt*0.15);
+        col = mix(col, lowC, mask * amt);
       }
-      vec3 blurred = acc / n;
-      float g = dot(blurred, vec3(0.3,0.59,0.11));
-      // contraste réduit : on rapproche du gris moyen, d'autant plus que l'intensité est forte
-      vec3 lowC = mix(blurred, vec3(g), 0.35 + amt*0.4) * (0.85 - amt*0.15);
-      col = mix(col, lowC, mask * amt);
 
-      // 3) SCOTOME CENTRAL dense : tache sombre grise/noire au centre, grandit avec l'intensité.
+      // 3) SCOTOME CENTRAL dense : tache sombre grandissant avec l'intensité.
       float coreR = d * (0.18 + amt*0.30);
       float core  = 1.0 - smoothstep(coreR*0.4, coreR, rr);
       col = mix(col, vec3(0.06,0.06,0.07), core * amt * 0.9);
