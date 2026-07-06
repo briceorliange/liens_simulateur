@@ -1589,31 +1589,29 @@ void main(){
   // d'Amsler), et non au centre exact où le scotome noir la masquerait.
   if(uDmlaOn > 0.5){
     float amt  = uDmlaAmt;
-    float d    = uDmlaDiam * 0.4 + 0.02;   // rayon du scotome (flou/gris/noir)
-    float zone = d * 2.4;                    // zone de métamorphopsie, plus large que le scotome
+    float d    = uDmlaDiam * 0.4 + 0.02;   // rayon du scotome
+    float zone = d * 1.5;                    // zone de métamorphopsie, à peine plus large que le scotome
     vec2 q = (uv - center) * uAspectFix;     // aspect corrigé → zone circulaire
     float rr = length(q);
     if(rr < zone){
       float ang = atan(q.y, q.x);
-      vec2 dir  = q / max(rr, 1e-4);
-      // enveloppe : forte dans l'anneau autour du centre, s'éteint au bord de la zone
-      float env = 1.0 - smoothstep(zone*0.45, zone, rr);
+      vec2 dir  = normalize(uv - center);     // direction en espace écran (déplacement isotrope, pas d'amplification d'axe)
+      // enveloppe : nulle au bord, max dans l'anneau, légèrement réduite au centre exact
+      float env = (1.0 - smoothstep(zone*0.7, zone, rr)) * smoothstep(0.0, zone*0.2, rr);
       float slow = uTime * 0.0005;
 
-      // 1) MÉTAMORPHOPSIE — déplacement des UV (ondulation des lignes droites).
-      //    Fréquences plus élevées + amplitude accrue = ondulation nettement visible.
-      float ripple = sin(rr*70.0 - slow*3.0)*0.6 + sin(rr*33.0 + ang*2.0 + slow*2.0)*0.4;
-      float wamp = amt * 0.10 * env;                 // ∝ intensité (stade)
-      vec2 duv  = dir * (wamp * ripple);              // pincement/renflement ondulé
-      duv += vec2(-dir.y, dir.x) * wamp * 0.7 * sin(ang*4.0 + rr*45.0 + slow); // torsion des lignes
-      vec2 wuv = uv - duv / uAspectFix;
-      // lignes déformées visibles sur TOUTE la zone (y compris hors du scotome)
+      // 1) MÉTAMORPHOPSIE — ondulation LÉGÈRE des lignes (amplitude faible, fréquence modérée).
+      float ripple = sin(rr*22.0 - slow*2.0)*0.6 + sin(rr*13.0 + ang*2.0 + slow*1.5)*0.4;
+      float wamp = amt * 0.012 * env;                // amplitude faible ∝ intensité
+      vec2 duv  = dir * (wamp * ripple);              // léger pincement/renflement ondulé
+      duv += vec2(-dir.y, dir.x) * wamp * 0.5 * sin(ang*3.0 + rr*18.0 + slow); // torsion douce
+      vec2 wuv = uv + duv;
       col = mix(col, sampleVideo(wuv), env);
 
       // 2) Flou + perte d'acuité/contraste, concentrés vers le centre.
-      float mask = 1.0 - smoothstep(d-0.15, d, rr);
+      float mask = 1.0 - smoothstep(d-0.12, d, rr);
       if(mask > 0.001){
-        float r = amt * 0.024;
+        float r = amt * 0.02;
         vec3 acc = sampleVideo(wuv); float n = 1.0;
         for(int i=0;i<8;i++){
           float a = float(i) * 0.785398;
