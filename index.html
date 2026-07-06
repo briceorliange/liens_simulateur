@@ -1822,7 +1822,15 @@ function drawScotomas(){
   // Sévère (intensité haute) → beaucoup de cœurs opaques.
   const opaqueThresh = 1.0 - inten*0.7;
   scotomaShapes.forEach(s=>{
-    const grad = dfxCtx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.size);
+    dfxCtx.save();
+    dfxCtx.translate(s.x, s.y);
+    dfxCtx.rotate(s.rot);
+    /* [v8.3] BUGFIX MAJEUR : le dégradé DOIT être créé APRÈS translate/rotate,
+       centré sur l'origine locale (0,0). Avant, il était créé en coordonnées
+       absolues (s.x,s.y) puis re-transformé par le translate → son centre
+       opaque tombait hors de l'ellipse, qui n'était donc peinte qu'avec la
+       frange transparente → taches quasi invisibles. */
+    const grad = dfxCtx.createRadialGradient(0,0,0, 0,0,s.size);
     if(s.dense > opaqueThresh){
       // Angle mort dense : centre presque noir → un mot entier peut disparaître
       grad.addColorStop(0,   `rgba(3,3,3,${Math.min(0.99, alpha*1.5)})`);
@@ -1832,9 +1840,6 @@ function drawScotomas(){
       grad.addColorStop(0.6, `rgba(5,5,5,${alpha*0.75})`);
     }
     grad.addColorStop(1, 'rgba(5,5,5,0)');           // bords flous
-    dfxCtx.save();
-    dfxCtx.translate(s.x, s.y);
-    dfxCtx.rotate(s.rot);
     dfxCtx.fillStyle = grad;
     dfxCtx.beginPath();
     dfxCtx.ellipse(0, 0, s.size*s.lobe, s.size*s.squish, 0, 0, 7);
