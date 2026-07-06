@@ -1905,7 +1905,12 @@ function startRenderLoop(useFallback){
         let minX=1,minY=1,maxX=0,maxY=0;
         lm.forEach(p=>{ minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); });
         const pad=0.06;
-        return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, w:(maxX-minX)+pad*2, h:(maxY-minY)+pad*2 };
+        // [v8] wristY/tipY : repères du poignet (landmark 0) et du bout du majeur
+        // (landmark 12) pour savoir de quel côté du cadre se trouve la PAUME.
+        // Sert à l'élargissement de paume / raccourcissement des doigts, sans
+        // aucun calcul supplémentaire par frame (stocké à la détection, ~16/s).
+        return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, w:(maxX-minX)+pad*2, h:(maxY-minY)+pad*2,
+                 wristY: lm[0].y, tipY: (lm[12]||lm[0]).y };
       });
       if(boxes.length>0){ lastGoodBoxes = boxes; lastGoodTime = t; }
     }catch(e){ /* frame transitoire ignorée */ }
@@ -2040,6 +2045,54 @@ function startRenderLoop(useFallback){
     };
   }
 
+  /* ===================================================================
+     [v8 — PERCEPTION] Outils communs aux effets visages / mains
+     Objectif : perception crédible, jamais brutale, fluide sur mobile.
+     - slowNoise : bruit très basse fréquence (2 sinus de périodes
+       incommensurables ≈ Perlin 1D). Zéro allocation, zéro table.
+     - easeTo    : lissage exponentiel dépendant du temps réel écoulé
+       (dt) → stable quel que soit le framerate (60/90/120 Hz).
+     - frameDt   : durée réelle de la frame, mise à jour dans frame().
+     - Masques radiaux PRÉCALCULÉS une seule fois (plus aucun
+       createRadialGradient dans la boucle → moins de GC, plus de fps).
+     - faceTracks / handTracks : état de suivi par cible, objets
+       RÉUTILISÉS (aucune allocation dans la boucle principale).
+     NB : le téléphone est utilisé en PAYSAGE → cy (0=haut, 1=bas de
+     l'image caméra) correspond bien à l'axe vertical réel de la scène.
+     =================================================================== */
+  let frameDt = 16, lastFrameT = 0;
+  function slowNoise(t, f, ph){
+    // pseudo-Perlin 1D : deux sinus non harmoniques, valeur dans [-1, 1]
+    return Math.sin(t*f + ph)*0.6 + Math.sin(t*f*0.53 + ph*1.7 + 1.3)*0.4;
+  }
+  function easeTo(cur, target, dt, tau){
+    // approche exponentielle : tau = temps caractéristique en ms
+    return cur + (target - cur) * (1 - Math.exp(-dt/Math.max(1,tau)));
+  }
+  function makeRadialMask(size, r0, r1){
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const cx = c.getContext('2d');
+    const g = cx.createRadialGradient(size/2,size/2,size*r0, size/2,size/2,size*r1);
+    g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+    cx.fillStyle = g; cx.fillRect(0,0,size,size);
+    return c;
+  }
+  const faceEdgeMask   = makeRadialMask(256, 0.30, 0.50); // fondu elliptique du patch visage
+  const handEdgeMask   = makeRadialMask(256, 0.28, 0.50); // fondu du patch main (bords légèrement flous)
+  const handCenterMask = makeRadialMask(256, 0.16, 0.44); // zone centrale du fisheye local
+  // Vignettage local du visage : anneau sombre précalculé, dessiné avec globalAlpha ∝ domination
+  const faceVignette = (()=>{
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const cx = c.getContext('2d');
+    const g = cx.createRadialGradient(128,128,256*0.24, 128,128,128);
+    g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,1)');
+    cx.fillStyle = g; cx.fillRect(0,0,256,256);
+    return c;
+  })();
+  const faceTracks = [];   // suivi temporel des visages (position lissée, vitesses, enveloppe de domination)
+  const handTracks = [];   // suivi temporel des mains (retard moteur, enveloppe d'effet)
+  const handSliceH = new Float32Array(16); // hauteurs de tranches réutilisées (raccourcissement des doigts)
+
   const facePatch = document.createElement('canvas'); facePatch.width=256; facePatch.height=256;
   const facePatchCtx = facePatch.getContext('2d');
   const faceOut = document.createElement('canvas'); faceOut.width=256; faceOut.height=256;
@@ -2069,85 +2122,139 @@ function startRenderLoop(useFallback){
     // seuil : hauteur du visage (fraction de l'image) au-delà de laquelle on le considère "proche"
     const nearThresh = 0.14 + (state.face.threshold/100) * 0.30;
     const PW = facePatch.width, PH = facePatch.height;
-    faceBoxes.forEach(f=>{
-      const sw = f.w*vw, sh = f.h*vh;
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    const dt = frameDt;
+
+    faceBoxes.forEach((f, i)=>{
+      /* ---- [v8] SUIVI TEMPOREL PAR VISAGE ----------------------------------
+         Pourquoi : la détection tourne à ~11 Hz → sans lissage, la boîte
+         "saute" et tout effet dérivé (vitesse, taille) est bruité.
+         On lisse position/taille (τ ≈ 150–220 ms) : cela crée AUSSI le
+         retard perceptif voulu (100–200 ms) et la poursuite inertielle
+         (le visage continue de glisser quand la personne s'arrête). */
+      let tr = faceTracks[i];
+      if(!tr){ tr = faceTracks[i] = {cx:f.cx, cy:f.cy, w:f.w, h:f.h, vx:0, vy:0, vh:0, dom:0}; }
+      // resynchronisation immédiate si "téléportation" (nouveau visage à cet index)
+      if(Math.abs(f.cx-tr.cx)+Math.abs(f.cy-tr.cy) > 0.35){
+        tr.cx=f.cx; tr.cy=f.cy; tr.w=f.w; tr.h=f.h; tr.vx=0; tr.vy=0; tr.vh=0; tr.dom=0;
+      }
+      // vitesses estimées (unités normalisées / seconde), elles-mêmes lissées
+      tr.vx = easeTo(tr.vx, (f.cx-tr.cx)/Math.max(dt,1)*1000, dt, 180);
+      tr.vy = easeTo(tr.vy, (f.cy-tr.cy)/Math.max(dt,1)*1000, dt, 180);
+      tr.vh = easeTo(tr.vh, (f.h -tr.h )/Math.max(dt,1)*1000, dt, 260); // >0 = le visage GRANDIT = il approche
+      tr.cx = easeTo(tr.cx, f.cx, dt, 150);
+      tr.cy = easeTo(tr.cy, f.cy, dt, 150);
+      tr.w  = easeTo(tr.w , f.w , dt, 220);
+      tr.h  = easeTo(tr.h , f.h , dt, 220);
+
+      const sw = tr.w*vw, sh = tr.h*vh;
       if(sw<4||sh<4) return;
-      const mx = sw*0.25, my = sh*0.25;                 // marge autour du visage
-      const sx = (f.cx-f.w/2)*vw - mx, sy = (f.cy-f.h/2)*vh - my;
+      const mx = sw*0.25, my = sh*0.28;                 // marge autour du visage (un peu plus haute : front)
+      const sx = (tr.cx-tr.w/2)*vw - mx, sy = (tr.cy-tr.h/2)*vh - my;
       facePatchCtx.clearRect(0,0,PW,PH);
       facePatchCtx.drawImage(video, sx, sy, sw+2*mx, sh+2*my, 0,0,PW,PH);
 
       faceOutCtx.clearRect(0,0,PW,PH);
-      const near = f.h >= nearThresh;
-      let sizeMult = 1.5;
+      const near = tr.h >= nearThresh;
+      let sizeMult = 1.5, sizeMultY = 1.5;
+
       if(near){
-        // --- Déformation (visage proche) : effet "domination" ---
-        // Un visage proche ET haut dans le champ évoque une personne debout au-dessus
-        // de l'utilisateur (assis / alité) : l'effet est renforcé (plus grand, plus sombre,
-        // plus déformé). Si le visage est proche mais centré à hauteur du regard (personne
-        // accroupie), l'effet est volontairement réduit : plus calme, plus humain.
-        const clamp01 = v => Math.max(0, Math.min(1, v));
+        /* ---- [v8] SCORE DE DOMINATION multi-facteurs -----------------------
+           dominance ≈ proximité × hauteur dans le champ × (1 + vitesse
+           d'approche) × stabilité du regard, très fortement atténué si la
+           personne se met À HAUTEUR DU REGARD (accroupie) — caractéristique
+           essentielle : se baisser apaise, même en restant proche.
+           NB : téléphone en PAYSAGE → tr.cy (0 = haut) est bien l'axe
+           vertical réel de la scène. */
+        const proximity   = clamp01((tr.h - nearThresh) / 0.35);
+        const highInFrame = clamp01((0.52 - tr.cy) / 0.28);
+        const eyeLevel    = 1.0 - clamp01(Math.abs(tr.cy - 0.52) / 0.22);
+        const approach    = clamp01(tr.vh / 0.22);                      // vitesse d'approche normalisée
+        const gazeStab    = 1.0 - clamp01((Math.abs(tr.vx)+Math.abs(tr.vy)) / 0.45); // visage immobile = regard fixe
+        const crouchRelief= proximity * eyeLevel;
 
-        // proximity : proximité apparente (taille du visage dans l'image). 0 = au seuil, 1 = très proche.
-        const proximity = clamp01((f.h - nearThresh) / 0.35);
+        let domTarget = proximity
+                      * (0.30 + 0.70*highInFrame)     // le surplomb pèse lourd, sans annuler la proximité seule
+                      * (1.0  + 0.90*approach)        // avancer vers l'utilisateur amplifie
+                      * (0.65 + 0.35*gazeStab);       // un regard fixe et stable amplifie
+        domTarget = clamp01(domTarget * (1.0 - 0.85*crouchRelief)); // se baisser réduit très fortement
 
-        // f.cy : centre vertical du visage (0 = haut de l'image, 1 = bas).
-        // highInFrame : plus le visage est haut dans l'image, plus la personne "surplombe".
-        const highInFrame = clamp01((0.52 - f.cy) / 0.28);
+        /* Enveloppe (contrainte n°8) : JAMAIS d'effet maximal instantané.
+           Montée ~450 ms, redescente ~750 ms (easing exponentiel). */
+        tr.dom = easeTo(tr.dom, domTarget, dt, domTarget > tr.dom ? 450 : 750);
+        const dom = tr.dom;
 
-        // eyeLevel : visage proche du centre vertical => personne à hauteur du regard.
-        const eyeLevel = 1.0 - clamp01(Math.abs(f.cy - 0.52) / 0.22);
+        /* ---- [v8] Présence envahissante : micro-respiration + oscillation --
+           Bruit très basse fréquence (pas de changement brusque) : la taille
+           "respire" (±1,5 %) et le visage oscille latéralement très lentement. */
+        const breath = slowNoise(t, 0.0016, i*2.1) * 0.015 * (0.5 + dom);
+        const sway   = slowNoise(t, 0.0009, i*4.7) * PW * 0.012 * (0.4 + dom);
 
-        // dominance : proche + haut dans le champ = impression d'être dominé.
-        const dominance = proximity * highInFrame;
+        /* ---- Taille : proximité + domination ; posture accroupie tempère.
+           sizeMultY > sizeMult : ALLONGEMENT VERTICAL (silhouette surplombante). */
+        sizeMult  = (1.40 + proximity*0.30 + dom*0.80 - crouchRelief*0.25) * (1 + breath);
+        sizeMultY = sizeMult * (1 + dom*0.14);
 
-        // crouchRelief : proche mais à hauteur du regard = apaisement (posture accroupie).
-        const crouchRelief = proximity * eyeLevel;
-
-        // Taille : la proximité seule agrandit, la domination exagère, la posture accroupie tempère.
-        sizeMult = 1.45 + proximity * 0.35 + dominance * 0.85 - crouchRelief * 0.25;
-
-        // Déformation : renforcée par la domination, atténuée à hauteur du regard.
-        const warpBoost = 1.0 + dominance * 1.4 - crouchRelief * 0.45;
-        const amp = (state.face.warp/100) * PW * 0.10 * (1 + proximity*0.8) * warpBoost;
-
-        // Élargissement progressif vers le bas (effet "surplombant"), amplifié par la domination.
-        const baseBulge = (state.face.warp/100) * proximity * 0.55;
-        const bulge = baseBulge * (1.0 + dominance * 1.3 - crouchRelief * 0.5);
+        /* ---- [v8] Déformation par tranches --------------------------------
+           - front ÉLARGI (profil quadratique en haut du patch → perspective
+             en contre-plongée, comme vu depuis un lit/fauteuil) ;
+           - menton légèrement élargi ;
+           - très légère ASYMÉTRIE dérivant lentement (jamais figée). */
+        const warpAmt   = (state.face.warp/100);
+        const amp       = warpAmt * PW * 0.055 * (1 + proximity*0.6) * (0.5 + dom);
+        const foreheadW = dom * warpAmt * 0.30;
+        const chinW     = dom * warpAmt * 0.10;
+        const asym      = dom * 0.045 * slowNoise(t, 0.0005, i*3.3);
 
         const slices = 26, sliceH = PH/slices;
-        for(let i=0;i<slices;i++){
-          const ny = i/slices;
-          const off = Math.sin(t*0.0022 + i*0.55)*amp + Math.sin(t*0.0013 + i*0.9)*amp*0.5;
-          const stretch = (1 + Math.sin(t*0.001 + i*0.3) * (state.face.warp/100)*0.12) * (1 + bulge*ny);
-          faceOutCtx.drawImage(facePatch, 0, i*sliceH, PW, sliceH,
-                               (PW*(1-stretch))/2 + off, i*sliceH, PW*stretch, sliceH+1);
+        for(let s=0; s<slices; s++){
+          const ny = s/slices;                          // 0 = haut (front), 1 = bas (menton)
+          const off = Math.sin(t*0.0018 + s*0.5)*amp*0.6 + sway*(1-ny*0.5);
+          const wProf = 1 + foreheadW*(1-ny)*(1-ny) + chinW*ny*ny;      // front large, menton léger
+          const stretch = wProf * (1 + asym*Math.sin(ny*3.1));          // asymétrie douce
+          faceOutCtx.drawImage(facePatch, 0, s*sliceH, PW, sliceH,
+                               (PW*(1-stretch))/2 + off + asym*PW*0.05*(ny-0.5), s*sliceH, PW*stretch, sliceH+1);
         }
-        // Assombrissement : la domination assombrit nettement (personne debout menaçante),
-        // la posture accroupie éclaircit (visage moins menaçant). Valeurs bornées pour
-        // éviter tout rendu grotesque ou horrifique.
-        const darkAmt = clamp01(0.08 + proximity * 0.10 + dominance * 0.35 - crouchRelief * 0.12);
+
+        /* ---- [v8] Contraste LOCAL : le patch est recomposé sur lui-même en
+           mode 'overlay' (1 seul drawImage, très peu coûteux) → traits plus
+           "durs" sans toucher au reste de l'image. */
+        faceOutCtx.globalCompositeOperation = 'overlay';
+        faceOutCtx.globalAlpha = 0.10 + dom*0.22;
+        faceOutCtx.drawImage(faceOut, 0, 0);
+        faceOutCtx.globalCompositeOperation = 'source-over';
+        faceOutCtx.globalAlpha = 1;
+
+        /* ---- Assombrissement global (borné) + VIGNETTAGE local précalculé -- */
+        const darkAmt = clamp01(0.06 + proximity*0.08 + dom*0.30 - crouchRelief*0.10);
         faceOutCtx.globalAlpha = darkAmt;
         faceOutCtx.fillStyle = '#000';
         faceOutCtx.fillRect(0,0,PW,PH);
+        faceOutCtx.globalAlpha = clamp01(0.28*dom);     // vignettage autour du visage ∝ domination
+        faceOutCtx.drawImage(faceVignette, 0, 0);
         faceOutCtx.globalAlpha = 1;
       } else {
-        // --- Flou (visage lointain) ---
+        // --- Flou (visage lointain), inchangé ; l'enveloppe redescend en douceur ---
+        tr.dom = easeTo(tr.dom, 0, dt, 750);
         const blurPx = 2 + (state.face.blur/100) * 14;
         faceOutCtx.filter = 'blur('+blurPx.toFixed(1)+'px)';
         faceOutCtx.drawImage(facePatch, 0,0,PW,PH);
         faceOutCtx.filter = 'none';
       }
-      // fondu elliptique pour intégrer le patch dans l'image
+      // fondu elliptique : masque PRÉCALCULÉ (plus de createRadialGradient par frame)
       faceOutCtx.globalCompositeOperation = 'destination-in';
-      const g = faceOutCtx.createRadialGradient(PW/2,PH/2,PW*0.30, PW/2,PH/2,PW*0.5);
-      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
-      faceOutCtx.fillStyle = g; faceOutCtx.fillRect(0,0,PW,PH);
+      faceOutCtx.drawImage(faceEdgeMask, 0, 0);
       faceOutCtx.globalCompositeOperation = 'source-over';
 
-      const p = videoNormToScreen(f.cx, f.cy, ax, ay);
-      const dW = Math.max(f.w/ax, f.h/ay) * dfxW * sizeMult;
-      dfxCtx.drawImage(faceOut, p.x-dW/2, p.y-dW/2, dW, dW);
+      /* ---- [v8] Position écran : léger retard + poursuite inertielle -------
+         tr.(cx,cy) sont déjà en retard (~150 ms). On ajoute une petite AVANCE
+         dans la direction du mouvement (tr.v * 60 ms) : quand la personne
+         s'arrête, le visage semble CONTINUER d'avancer un court instant. */
+      const p = videoNormToScreen(tr.cx + tr.vx*0.06, tr.cy + tr.vy*0.06, ax, ay);
+      const base = Math.max(tr.w/ax, tr.h/ay) * dfxW;
+      const dW = base * sizeMult;
+      const dH = base * sizeMultY;   // allongement vertical (déformation perspective)
+      dfxCtx.drawImage(faceOut, p.x-dW/2, p.y-dH/2, dW, dH);
     });
   }
 
@@ -2193,55 +2300,147 @@ function startRenderLoop(useFallback){
      L'effet reste subtil et crédible — jamais cartoon ni grotesque. */
   const bodyPatch = document.createElement('canvas'); bodyPatch.width=256; bodyPatch.height=256;
   const bodyPatchCtx = bodyPatch.getContext('2d');
+  // [v8] Canvas intermédiaire réutilisé pour la déformation anatomique + le fisheye local
+  const bodyWarp = document.createElement('canvas'); bodyWarp.width=256; bodyWarp.height=256;
+  const bodyWarpCtx = bodyWarp.getContext('2d');
 
   function drawBodySchemaHands(t, ax, ay){
     if(!demencesEnabled || !state.bodySchema.on || handBoxes.length===0 || useFallback || !video.videoWidth) return;
     const S = state.bodySchema;
     const vw = video.videoWidth, vh = video.videoHeight;
     const PW = bodyPatch.width, PH = bodyPatch.height;
+    const dt = frameDt;
 
-    // Fluctuation lente (Corps de Lewy : l'effet va et vient, ~15 s de cycle)
+    // Fluctuation lente (Corps de Lewy : l'effet va et vient, ~15 s de cycle) — conservée
     let fluct = 1;
     if(typeof currentType !== 'undefined' && currentType === 'lewy'){
       fluct = 0.35 + 0.65 * (0.5 + 0.5*Math.sin(t*0.0004));
     }
 
-    // Grossissement progressif : 20→léger, 50→net, 80→fort mais contrôlé
-    const baseScale = 1.0 + (S.scale/100) * 0.75;
-    const wobble = Math.sin(t*0.003) * (S.instability/100) * 0.08;
-    const effScale = 1 + (baseScale - 1 + wobble) * fluct;
+    /* [v8] Source RETARDÉE : on lit la main dans le buffer temporel existant
+       (~70 ms en arrière) → vrai retard moteur visuel (contrainte n°6 :
+       40–80 ms), sans aucun coût supplémentaire (le ring existe déjà).
+       Calculé UNE fois par frame, pas par main. */
+    const delayed = (ring && ring.filled > 4) ? findDelayedSlot(t, 70) : null;
+    const rsx = delayed ? ring.w/vw : 1, rsy = delayed ? ring.h/vh : 1;
 
-    // Décalage spatial lent (mauvaise localisation de la main)
-    const dxPix = Math.sin(t*0.0021) * S.offset * 0.5  * fluct;
-    const dyPix = Math.cos(t*0.0017) * S.offset * 0.35 * fluct;
+    handBoxes.forEach((box, i)=>{
+      /* ---- [v8] Suivi + interpolation douce (retard moteur) ---------------
+         Position/taille lissées (τ 60–90 ms) : la main paraît légèrement en
+         retard et "flottante", le mouvement reste naturel. L'enveloppe env
+         monte en ~500 ms (contrainte n°8 : jamais d'effet maximal immédiat). */
+      let tr = handTracks[i];
+      if(!tr){ tr = handTracks[i] = {cx:box.cx, cy:box.cy, w:box.w, h:box.h, env:0}; }
+      if(Math.abs(box.cx-tr.cx)+Math.abs(box.cy-tr.cy) > 0.35){   // nouvelle main → resynchronisation
+        tr.cx=box.cx; tr.cy=box.cy; tr.w=box.w; tr.h=box.h; tr.env=0;
+      }
+      tr.cx = easeTo(tr.cx, box.cx, dt, 60);
+      tr.cy = easeTo(tr.cy, box.cy, dt, 60);
+      tr.w  = easeTo(tr.w , box.w , dt, 90);
+      tr.h  = easeTo(tr.h , box.h , dt, 90);
+      tr.env= easeTo(tr.env, 1, dt, 500);
+      const env = tr.env * fluct;
 
-    handBoxes.forEach(box=>{
-      const sw = box.w*vw, sh = box.h*vh;
+      const sw = tr.w*vw, sh = tr.h*vh;
       if(sw<4 || sh<4) return;
 
-      // 1. Extraire la zone de la main depuis la vidéo temps réel
+      /* ---- [v8] Grossissement NON LINÉAIRE selon la proximité -------------
+         proxN² : distance divisée par 2 → impression ~×3 (contrainte n°5),
+         plafonné pour rester crédible (jamais cartoon). */
+      const proxN = Math.max(0, Math.min(1, (Math.max(tr.w, tr.h) - 0.16) / 0.45));
+
+      /* ---- [v8] Instabilité PERCEPTIVE lente : la taille fluctue de ±5 %
+         sur plusieurs secondes (bruit basse fréquence, contrainte n°4/7). */
+      const sizeNoise = 1 + slowNoise(t, 0.00042, i*2.6) * 0.05;
+
+      // +40 % à +80 % selon le réglage, avant amplification par la proximité
+      const baseScale = 1.35 + (S.scale/100) * 0.55;
+      let mag = baseScale * (1 + proxN*proxN*0.9) * sizeNoise;
+      mag = Math.min(mag, 2.4);                                   // garde-fou de crédibilité
+      const wobble = Math.sin(t*0.003 + i) * (S.instability/100) * 0.05;
+      const effScale = 1 + (mag - 1 + wobble) * env;
+
+      // Décalage spatial lent (mauvaise localisation), désormais par main (phase i)
+      const dxPix = Math.sin(t*0.0021 + i*2.4) * S.offset * 0.5  * env;
+      const dyPix = Math.cos(t*0.0017 + i*1.7) * S.offset * 0.35 * env;
+
+      // 1. Extraire la zone de la main (source RETARDÉE si dispo, sinon vidéo live)
+      const mxp = sw*0.18, myp = sh*0.18;                         // marge pour la déformation
       bodyPatchCtx.clearRect(0,0,PW,PH);
-      bodyPatchCtx.drawImage(video, (box.cx-box.w/2)*vw, (box.cy-box.h/2)*vh, sw, sh, 0,0,PW,PH);
-      // 2. Bords progressifs : fondu radial pour intégrer le patch
+      if(delayed){
+        bodyPatchCtx.drawImage(delayed.canvas,
+          ((tr.cx-tr.w/2)*vw - mxp)*rsx, ((tr.cy-tr.h/2)*vh - myp)*rsy,
+          (sw+2*mxp)*rsx, (sh+2*myp)*rsy, 0,0,PW,PH);
+      } else {
+        bodyPatchCtx.drawImage(video, (tr.cx-tr.w/2)*vw - mxp, (tr.cy-tr.h/2)*vh - myp,
+          sw+2*mxp, sh+2*myp, 0,0,PW,PH);
+      }
+
+      /* ---- [v8] 2. Déformation ANATOMIQUE par tranches ---------------------
+         Le poignet (landmark 0, stocké à la détection) indique de quel côté
+         se trouve la paume. Profil vertical :
+         - côté paume : tranches ÉLARGIES (paume plus large) et étirées ;
+         - côté doigts : tranches légèrement COMPRESSÉES (doigts raccourcis).
+         12 drawImage par main : négligeable à 60 fps. */
+      const palmDown = (box.wristY !== undefined) ? (box.wristY > box.cy) : true;
+      const palmWiden = 0.16 * env;                               // élargissement de la paume
+      const shorten   = 0.09 * env;                               // raccourcissement des doigts
+      const HS = 12, srcH = PH/HS;
+      let total = 0;
+      for(let s=0; s<HS; s++){
+        const ny = (s+0.5)/HS;                                    // 0 = haut du patch, 1 = bas
+        const fingerW = palmDown ? (1-ny) : ny;                   // poids "côté doigts"
+        handSliceH[s] = srcH * (1 - shorten*fingerW*fingerW + shorten*0.5*(1-fingerW)); // doigts courts, paume étirée
+        total += handSliceH[s];
+      }
+      const normH = PH/total;                                     // renormalisation : hauteur totale conservée
+      bodyWarpCtx.clearRect(0,0,PW,PH);
+      let dy = 0;
+      for(let s=0; s<HS; s++){
+        const ny = (s+0.5)/HS;
+        const palmW = palmDown ? ny : (1-ny);
+        const wS = 1 + palmWiden * palmW*Math.sqrt(palmW);        // paume nettement plus large
+        const dh = handSliceH[s]*normH;
+        bodyWarpCtx.drawImage(bodyPatch, 0, s*srcH, PW, srcH,
+                              (PW*(1-wS))/2, dy, PW*wS, dh+1);
+        dy += dh;
+      }
+
+      /* ---- [v8] 3. FISHEYE LOCAL (bombement central) -----------------------
+         Le centre du patch est redessiné agrandi à travers un masque radial
+         PRÉCALCULÉ : la paume "bombe" vers l'utilisateur. 2 drawImage,
+         aucun filtre coûteux. Amplitude ∝ proximité. */
+      const fish = (0.10 + 0.16*proxN) * env;
+      bodyPatchCtx.clearRect(0,0,PW,PH);
+      bodyPatchCtx.drawImage(bodyWarp, 0, 0);                     // base déformée
+      bodyWarpCtx.globalCompositeOperation = 'destination-in';    // isole le centre, bords fondus
+      bodyWarpCtx.drawImage(handCenterMask, 0, 0);
+      bodyWarpCtx.globalCompositeOperation = 'source-over';
+      const fz = PW*fish;                                         // zoom du centre uniquement
+      bodyPatchCtx.drawImage(bodyWarp, -fz/2, -fz/2, PW+fz, PH+fz);
+
+      // 4. Bords progressifs : masque précalculé (contours légèrement flous)
       bodyPatchCtx.globalCompositeOperation = 'destination-in';
-      const g = bodyPatchCtx.createRadialGradient(PW/2,PH/2,PW*0.30, PW/2,PH/2,PW*0.5);
-      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
-      bodyPatchCtx.fillStyle = g; bodyPatchCtx.fillRect(0,0,PW,PH);
+      bodyPatchCtx.drawImage(handEdgeMask, 0, 0);
       bodyPatchCtx.globalCompositeOperation = 'source-over';
 
-      // 3. Position écran et taille finale (agrandie)
-      const p = videoNormToScreen(box.cx, box.cy, ax, ay);
-      const dW  = Math.max(box.w/ax, box.h/ay) * dfxW * 1.3;
+      // 5. Position écran et taille finale
+      const p = videoNormToScreen(tr.cx, tr.cy, ax, ay);
+      const dW  = Math.max(tr.w/ax, tr.h/ay) * dfxW * 1.3;
       const dW2 = dW * effScale;
 
       dfxCtx.save();
-      // 4. Double image discrète (si ghost > 0)
+      /* [v8] Halo : la main est redessinée une fois à +4 % en faible alpha
+         → contours adoucis / impression de flottement (pas de filter:blur). */
+      dfxCtx.globalAlpha = 0.20 * env;
+      dfxCtx.drawImage(bodyPatch, p.x - dW2*0.52 + dxPix, p.y - dW2*0.52 + dyPix, dW2*1.04, dW2*1.04);
+      // Double image discrète (si ghost > 0) — conservée
       if(S.ghost > 0){
-        dfxCtx.globalAlpha = (S.ghost/100) * 0.35 * fluct;
+        dfxCtx.globalAlpha = (S.ghost/100) * 0.35 * env;
         dfxCtx.drawImage(bodyPatch, p.x - dW2/2 + dxPix*1.6, p.y - dW2/2 + dyPix*1.2, dW2, dW2);
       }
-      // 5. Main principale agrandie et décalée
-      dfxCtx.globalAlpha = Math.min(1, S.opacity/100) * (0.6 + 0.4*fluct);
+      // Main principale agrandie, déformée, légèrement décalée
+      dfxCtx.globalAlpha = Math.min(1, S.opacity/100) * (0.6 + 0.4*env);
       dfxCtx.drawImage(bodyPatch, p.x - dW2/2 + dxPix, p.y - dW2/2 + dyPix, dW2, dW2);
       dfxCtx.restore();
     });
@@ -2249,6 +2448,8 @@ function startRenderLoop(useFallback){
 
   function frame(t){
     requestAnimationFrame(frame);
+    // [v8] Durée réelle de la frame (bornée) : base de tous les lissages easeTo().
+    frameDt = Math.min(50, Math.max(1, t - lastFrameT)); lastFrameT = t;
     const src = useFallback ? fallbackCanvas : video;
     if(!useFallback && video.readyState < 2) return;
 
