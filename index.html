@@ -814,11 +814,11 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
           <button class="seg-btn" data-val="1">Côté droit</button>
         </div>
         <div class="sub-row"><label>Négligence</label><input type="range" class="fx-sub" data-k="neglect" min="0" max="100" value="40"></div>
-        <div class="sub-row"><label>Amputation champ</label><input type="range" class="fx-sub" data-k="cut" min="0" max="100" value="35"></div>
-        <div class="sub-row expert-only"><label>Lenteur / inertie</label><input type="range" class="fx-sub" data-k="delay" min="0" max="100" value="30"></div>
-        <div class="sub-row expert-only"><label>Désorient. visuospatiale</label><input type="range" class="fx-sub" data-k="confusion" min="0" max="100" value="25"></div>
-        <div class="sub-row expert-only"><label>Décrochage attention</label><input type="range" class="fx-sub" data-k="dropout" min="0" max="100" value="30"></div>
-        <div class="sub-row expert-only"><label>Asymétrie</label><input type="range" class="fx-sub" data-k="asym" min="0" max="100" value="60"></div>
+        <div class="sub-row"><label>Champ partiellement ignoré</label><input type="range" class="fx-sub" data-k="cut" min="0" max="100" value="35"></div>
+        <div class="sub-row expert-only"><label>Lenteur de traitement</label><input type="range" class="fx-sub" data-k="delay" min="0" max="100" value="30"></div>
+        <div class="sub-row expert-only"><label>Confusion spatiale</label><input type="range" class="fx-sub" data-k="confusion" min="0" max="100" value="25"></div>
+        <div class="sub-row expert-only"><label>Décrochages</label><input type="range" class="fx-sub" data-k="dropout" min="0" max="100" value="30"></div>
+        <div class="sub-row expert-only"><label>Latéralisation</label><input type="range" class="fx-sub" data-k="asym" min="0" max="100" value="60"></div>
       </div>
     </div>
         </div>
@@ -1122,16 +1122,20 @@ const DEMENTIA_PROFILES = {
     overload:{w:0.9,thr:0.50}, bodySchema:{w:0.8,thr:0.45} },
   vasc: { label:'Vasculaire',
     // séquelles d'AVC : atteinte NEUROLOGIQUE asymétrique du traitement visuel.
-    // Le tunnel symétrique est retiré (thr>1 → jamais déclenché par le stade) : la
-    // signature vasculaire est portée par l'effet "vneglect" (négligence spatiale,
-    // amputation douce et irrégulière d'un hémichamp, lenteur, décrochages d'attention).
-    // On réduit aussi l'assombrissement global (dim) et le brouillard (fog), qui
-    // faisaient trop "dégradation ophtalmo générale". Latence & visuospatial conservés.
-    blur:{w:0.7,thr:0.20}, contrast:{w:0.8,thr:0.20}, tunnel:{w:0.0,thr:1.10},
-    tint:{w:0.5,thr:0.40}, face:{w:0.9,thr:0.25}, latency:{w:1.4,thr:0.15},
-    dim:{w:0.6,thr:0.45}, fog:{w:0.7,thr:0.40}, depth:{w:1.1,thr:0.28},
-    distort:{w:0.6,thr:0.45}, unstable:{w:0.7,thr:0.45}, halluc:{w:0.4,thr:0.55},
-    overload:{w:0.9,thr:0.45}, bodySchema:{w:1.2,thr:0.25} }
+    // La signature vasculaire est portée AVANT TOUT par l'effet "vneglect" (négligence
+    // spatiale latéralisée, perte de saillance, champ partiellement ignoré, lenteur,
+    // décrochages). Les autres effets restent SECONDAIRES pour ne pas parasiter le sens :
+    //  • tunnel désactivé (thr>1) ;
+    //  • hallucinations désactivées (thr>1) → réservées au Corps de Lewy ;
+    //  • latency & bodySchema (main) reculés/allégés → la main n'est plus l'effet
+    //    dominant en modéré ;
+    //  • blur central, dim global et fog global maintenus FAIBLES et tardifs (évite le
+    //    ressenti "dégradation ophtalmo générale").
+    blur:{w:0.5,thr:0.35}, contrast:{w:0.8,thr:0.20}, tunnel:{w:0.0,thr:1.10},
+    tint:{w:0.5,thr:0.45}, face:{w:0.8,thr:0.30}, latency:{w:0.85,thr:0.32},
+    dim:{w:0.5,thr:0.50}, fog:{w:0.5,thr:0.50}, depth:{w:1.0,thr:0.30},
+    distort:{w:0.6,thr:0.45}, unstable:{w:0.7,thr:0.45}, halluc:{w:0.0,thr:1.10},
+    overload:{w:0.85,thr:0.45}, bodySchema:{w:0.7,thr:0.45} }
 };
 let currentType = 'alz';
 const clamp100 = x => Math.max(0, Math.min(100, x));
@@ -1175,13 +1179,20 @@ function applyStagePreset(v){
        Sévère (t≈0.85) : forte négligence, hémichamp assombri/flou irrégulier,
                          latence importante, scène fragmentée mais encore crédible. */
   if(currentType === 'vasc'){
-    state.vneglect.on = t > 0.03;
-    state.vneglect.neglect   = clamp100(18 + t*72);                 // saillance ↓ d'un côté
-    state.vneglect.cut       = clamp100(Math.max(0,(t-0.18)*105));  // amputation douce (apparaît en modéré)
-    state.vneglect.delay     = clamp100(12 + t*63);                 // inertie / lenteur de traitement
-    state.vneglect.confusion = clamp100(Math.max(0,(t-0.10)*72));   // trouble visuospatial
-    state.vneglect.dropout   = clamp100(Math.max(0,(t-0.22)*78));   // décrochages d'attention
-    state.vneglect.asym      = clamp100(45 + t*45);                 // latéralisation globale
+    state.vneglect.on = t > 0.02;
+    // Cibles : Léger t≈0.15 / Modéré t≈0.50 / Sévère t≈0.85
+    //   neglect   30 / 57 / 83   → négligence spatiale = effet DOMINANT
+    //   asym      65 / 78 / 91   → forte latéralisation dès le léger
+    //   delay     25 / 48 / 72   → lenteur de traitement (pas seulement la main)
+    //   confusion 10 / 37 / 65   → confusion spatiale croissante
+    //   dropout   10 / 38 / 66   → décrochages d'attention plus visibles en modéré/sévère
+    //   cut        3 / 26 / 50   → champ partiellement ignoré, diffus (jamais un quart net)
+    state.vneglect.neglect   = clamp100(19 + t*76);
+    state.vneglect.asym      = clamp100(60 + t*36);
+    state.vneglect.delay     = clamp100(15 + t*67);
+    state.vneglect.confusion = clamp100(Math.max(0,(t-0.02)*78));
+    state.vneglect.dropout   = clamp100(Math.max(0,(t-0.02)*80));
+    state.vneglect.cut       = clamp100(Math.max(0,(t-0.10)*66));
   } else {
     state.vneglect.on = false;
   }
@@ -1825,9 +1836,11 @@ void main(){
 
     // Champ de négligence : croît vers le bord atteint, MODULÉ par un bruit basse
     // fréquence → certaines zones sont "oubliées", ce n'est ni une ligne ni un cercle net.
-    float grad = smoothstep(0.55 - 0.55*asym, 1.0, sideAxis);
+    // Départ plus précoce (0.48-0.48*asym) et gain plus fort → la négligence couvre une
+    // plus grande part de l'hémichamp atteint et reste perceptible dès le stade léger.
+    float grad = smoothstep(0.48 - 0.48*asym, 1.02, sideAxis);
     float nLow = dmlaNoise(fuv*2.6 + uTime*0.02)*0.6 + dmlaNoise(fuv*6.0 + 4.1)*0.4;
-    float neglectField = clamp(grad * (0.60 + 0.75*(nLow-0.5)), 0.0, 1.0);
+    float neglectField = clamp(grad * (0.72 + 0.70*(nLow-0.5)), 0.0, 1.0);
 
     // 1) Trouble visuospatial + inertie : léger warp irrégulier et LENT (le cerveau
     //    "stabilise" mal la scène), renforcé du côté atteint et vers les bords.
@@ -1841,14 +1854,16 @@ void main(){
     vec2 vuv = uv + w * warpAmt;
 
     // 2) Micro-décrochages d'attention : taches LENTES où la lisibilité chute
-    //    (contraste/netteté), surtout du côté atteint. Pas de clignotement rapide.
-    float dropCell = dmlaNoise(fuv*4.0 + vec2(slow*0.35, -slow*0.28));
-    float drop = smoothstep(0.60, 0.90, dropCell) * uVascDropout * (0.30 + neglectField);
+    //    (contraste/netteté), surtout du côté atteint. Seuil abaissé → plus visibles
+    //    en modéré/sévère, tout en restant irréguliers et sans clignotement rapide.
+    float dropCell = dmlaNoise(fuv*4.0 + vec2(slow*0.35, -slow*0.28))*0.65
+                   + dmlaNoise(fuv*9.0 - vec2(slow*0.2, slow*0.15))*0.35;
+    float drop = smoothstep(0.55, 0.86, dropCell) * uVascDropout * (0.30 + neglectField);
 
     // 3) Reconstruit la couleur depuis l'uv distordu, puis flou local (traitement lent)
     //    sur le côté atteint et les zones de décrochage.
     vec3 vcol = sampleVideo(vuv);
-    float softAmt = clamp(neglectField*0.55 + drop, 0.0, 1.0);
+    float softAmt = clamp(neglectField*0.62 + drop, 0.0, 1.0);
     if(softAmt > 0.01){
       float r = (0.005 + uVascDelay*0.011) * softAmt;
       vec3 acc = vcol;
@@ -1860,26 +1875,35 @@ void main(){
     }
     col = vcol;
 
-    // 4) Héminégligence : baisse de SAILLANCE du côté atteint (contraste ↓, saturation ↓,
-    //    légère baisse de luminosité). Progressive, jamais coupée net.
+    // 4) Héminégligence (effet DOMINANT) : baisse de SAILLANCE du côté atteint
+    //    (contraste ↓, saturation ↓, luminosité légèrement ↓ + netteté ↓ via le flou
+    //    local ci-dessus). Progressive et irrégulière, jamais coupée net.
     float neg = neglectField * uVascNeglect;
-    col = (col - 0.5) * (1.0 - neg*0.50) + 0.5;                 // contraste local ↓
+    col = (col - 0.5) * (1.0 - neg*0.55) + 0.5;                 // contraste local ↓
     float g1 = dot(col, vec3(0.299,0.587,0.114));
-    col = mix(col, vec3(g1), neg*0.55);                        // désaturation
-    col *= (1.0 - neg*0.32);                                    // assombrissement doux
-    col = mix(col, vec3(dot(col, vec3(0.33))*0.9), drop*0.5);   // décrochage : contraste local ↓
+    col = mix(col, vec3(g1), neg*0.62);                        // désaturation
+    col *= (1.0 - neg*0.34);                                    // assombrissement doux
+    col = mix(col, vec3(dot(col, vec3(0.33))*0.88), drop*0.6);  // décrochage : contraste local ↓
 
-    // 5) Amputation DOUCE et IRRÉGULIÈRE d'un hémichamp (hémi/quadranopsie douce) :
-    //    assombrissement progressif vers le bord atteint, front ONDULÉ (bruit), avec un
-    //    léger biais vertical (un quadrant plus touché). Jamais une coupe verticale nette,
-    //    jamais un cercle, jamais du noir pur → voile sombre désaturé (origine cérébrale).
-    float cutFront = 0.66 - uVascCut*0.40;                                   // avancée du front
-    float wob = (dmlaNoise(fuv*vec2(2.0,5.0) + 9.1) - 0.5) * 0.20;           // bord ondulé
-    float quadBias = (fuv.y-0.5) * uVascCut * 0.30 * (uVascSide<0.5?1.0:-1.0);// biais quadranopsie
-    float front = cutFront + wob + quadBias;
-    float cut = smoothstep(front, front + 0.30, sideAxis) * uVascCut;
-    vec3 veil = vec3(dot(col, vec3(0.33))) * 0.10;
-    col = mix(col, veil, clamp(cut, 0.0, 1.0));
+    // 5) "Champ partiellement ignoré" : perte de saillance DIFFUSE, large et IRRÉGULIÈRE
+    //    vers le côté atteint. Volontairement NON géométrique :
+    //      • transition très large (pas de bord net) ;
+    //      • front ondulé + modulé par un bruit lent → aspect patché et fluctuant ;
+    //      • pas de biais vertical marqué → latéral, jamais un "quart d'écran" propre ;
+    //      • rendu = image locale désaturée et assombrie AVEC PLANCHER (jamais noir),
+    //        c.-à-d. une perte de saillance NEUROLOGIQUE, pas un masque optique.
+    float cutStart = 0.74 - uVascCut*0.58;                       // le front avance largement en sévère
+    float cutSpan  = 0.55 + uVascCut*0.25;                       // zone de transition TRÈS large
+    float cutN = dmlaNoise(fuv*3.2 + vec2(-slow*0.30, slow*0.25))*0.6
+               + dmlaNoise(fuv*7.0 + 12.0)*0.4;                  // grain lent irrégulier
+    float wob = (cutN - 0.5) * (0.24 + uVascCut*0.12);           // front ondulé (aucune ligne droite)
+    float cutBase = smoothstep(cutStart + wob, cutStart + wob + cutSpan, sideAxis);
+    // patches : le bruit rend certaines zones plus/moins ignorées → atteinte fragmentée
+    float cut = clamp(cutBase * (0.50 + 0.70*cutN), 0.0, 1.0) * uVascCut;
+    float gcut = dot(col, vec3(0.299,0.587,0.114));
+    vec3 dull = mix(col, vec3(gcut), 0.72) * 0.60;              // gris-sombre désaturé
+    dull = max(dull, vec3(0.06));                               // PLANCHER : jamais totalement noir
+    col = mix(col, dull, cut);
 
     col = clamp(col, 0.0, 1.0);
   }
