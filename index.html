@@ -803,6 +803,24 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="amount" min="0" max="100" value="40"></div>
       </div>
     </div>
+    <div class="effect" data-effect="vneglect">
+      <div class="effect-head">
+        <span class="name">Négligence spatiale <span style="color:var(--muted-2);font-family:'IBM Plex Mono',monospace;font-size:9px;">· vasculaire · atteinte cérébrale asymétrique</span></span>
+        <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
+      </div>
+      <div class="sub-sliders">
+        <div class="seg-group" data-effect="vneglect" data-key="side">
+          <button class="seg-btn active" data-val="0">Côté gauche</button>
+          <button class="seg-btn" data-val="1">Côté droit</button>
+        </div>
+        <div class="sub-row"><label>Négligence</label><input type="range" class="fx-sub" data-k="neglect" min="0" max="100" value="40"></div>
+        <div class="sub-row"><label>Amputation champ</label><input type="range" class="fx-sub" data-k="cut" min="0" max="100" value="35"></div>
+        <div class="sub-row expert-only"><label>Lenteur / inertie</label><input type="range" class="fx-sub" data-k="delay" min="0" max="100" value="30"></div>
+        <div class="sub-row expert-only"><label>Désorient. visuospatiale</label><input type="range" class="fx-sub" data-k="confusion" min="0" max="100" value="25"></div>
+        <div class="sub-row expert-only"><label>Décrochage attention</label><input type="range" class="fx-sub" data-k="dropout" min="0" max="100" value="30"></div>
+        <div class="sub-row expert-only"><label>Asymétrie</label><input type="range" class="fx-sub" data-k="asym" min="0" max="100" value="60"></div>
+      </div>
+    </div>
         </div>
       </section>
       <section class="cat" data-cat="orientation">
@@ -1061,10 +1079,23 @@ const state = {
   cataract:    { on:false, amount:50 },
   glaucoma:    { on:false, diameter:55, opacity:85 },
   retinitis:   { on:false, diameter:30, dim:60 },
-  retinopathy: { on:false, count:40, size:40, intensity:60 }
-};
+  retinopathy: { on:false, count:40, size:40, intensity:60 },
 
-const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face','overload','bodySchema'];
+  /* --- Démence vasculaire : atteinte NEUROLOGIQUE asymétrique du traitement visuel ---
+     Distincte des troubles ophtalmo (pas de tunnel circulaire, pas de scotome central).
+     side       : 0 = hémichamp GAUCHE négligé, 1 = hémichamp DROIT négligé
+     neglect    : intensité de la négligence spatiale (saillance ↓ d'un côté)
+     cut        : amputation douce et irrégulière d'un hémichamp (hémi/quadranopsie douce)
+     delay      : lenteur / inertie du traitement (stabilisation lente, flou local)
+     confusion  : trouble visuospatial (distorsions discrètes, surtout bords & côté atteint)
+     dropout    : micro-décrochages d'attention (zones qui deviennent moins lisibles)
+     asym       : degré de latéralisation globale de l'atteinte */
+  vneglect:    { on:false, side:0, neglect:40, cut:35, delay:30, confusion:25, dropout:30, asym:60 }
+};
+/* Côté atteint tiré au sort au lancement (réglable ensuite en mode Expert). */
+state.vneglect.side = Math.random() < 0.5 ? 0 : 1;
+
+const DEMENTIA_KEYS = ['blur','tunnel','contrast','tint','unstable','dim','fog','halluc','distort','latency','depth','face','overload','bodySchema','vneglect'];
 const VISUEL_KEYS = ['acuity','photo','eye','hemianopsia','quadranopsia','dmla','cataract','glaucoma','retinitis','retinopathy','nystagmus'];
 /* currentTab supprimé (v7.1) : les modules A/B sont désormais réellement
    indépendants — plus aucun bouton principal ne dépend d'un onglet. */
@@ -1090,12 +1121,17 @@ const DEMENTIA_PROFILES = {
     distort:{w:1.3,thr:0.20}, unstable:{w:1.4,thr:0.20}, halluc:{w:1.5,thr:0.15},
     overload:{w:0.9,thr:0.50}, bodySchema:{w:0.8,thr:0.45} },
   vasc: { label:'Vasculaire',
-    // séquelles d'AVC : amputation du champ (tunnel), lenteur de traitement, ralentissement cognitif ; fluctuations "en marches"
-    blur:{w:0.9,thr:0.10}, contrast:{w:1.0,thr:0.10}, tunnel:{w:1.4,thr:0.10},
-    tint:{w:0.7,thr:0.25}, face:{w:0.9,thr:0.25}, latency:{w:1.4,thr:0.15},
-    dim:{w:1.2,thr:0.25}, fog:{w:1.3,thr:0.20}, depth:{w:1.0,thr:0.30},
-    distort:{w:0.9,thr:0.35}, unstable:{w:0.9,thr:0.35}, halluc:{w:0.5,thr:0.50},
-    overload:{w:1.0,thr:0.45}, bodySchema:{w:1.2,thr:0.25} }
+    // séquelles d'AVC : atteinte NEUROLOGIQUE asymétrique du traitement visuel.
+    // Le tunnel symétrique est retiré (thr>1 → jamais déclenché par le stade) : la
+    // signature vasculaire est portée par l'effet "vneglect" (négligence spatiale,
+    // amputation douce et irrégulière d'un hémichamp, lenteur, décrochages d'attention).
+    // On réduit aussi l'assombrissement global (dim) et le brouillard (fog), qui
+    // faisaient trop "dégradation ophtalmo générale". Latence & visuospatial conservés.
+    blur:{w:0.7,thr:0.20}, contrast:{w:0.8,thr:0.20}, tunnel:{w:0.0,thr:1.10},
+    tint:{w:0.5,thr:0.40}, face:{w:0.9,thr:0.25}, latency:{w:1.4,thr:0.15},
+    dim:{w:0.6,thr:0.45}, fog:{w:0.7,thr:0.40}, depth:{w:1.1,thr:0.28},
+    distort:{w:0.6,thr:0.45}, unstable:{w:0.7,thr:0.45}, halluc:{w:0.4,thr:0.55},
+    overload:{w:0.9,thr:0.45}, bodySchema:{w:1.2,thr:0.25} }
 };
 let currentType = 'alz';
 const clamp100 = x => Math.max(0, Math.min(100, x));
@@ -1128,6 +1164,28 @@ function applyStagePreset(v){
     ghost:       Math.max(0,(t-0.35)*40)*P.bodySchema.w,
     opacity:     55 + t*25
   });
+
+  /* --- Démence vasculaire : effet neurologique asymétrique piloté par le stade ---
+     Actif uniquement quand le type courant est "vasculaire". Le côté atteint (side)
+     est conservé (tiré au sort au lancement, réglable en Expert). Progression :
+       Léger  (t≈0.15) : latéralisation discrète, un côté un peu moins contrasté,
+                         petites lenteurs, pas d'amputation de champ ;
+       Modéré (t≈0.50) : un côté franchement moins bien traité, retard perceptif net,
+                         quelques zones "oubliées", début d'amputation douce ;
+       Sévère (t≈0.85) : forte négligence, hémichamp assombri/flou irrégulier,
+                         latence importante, scène fragmentée mais encore crédible. */
+  if(currentType === 'vasc'){
+    state.vneglect.on = t > 0.03;
+    state.vneglect.neglect   = clamp100(18 + t*72);                 // saillance ↓ d'un côté
+    state.vneglect.cut       = clamp100(Math.max(0,(t-0.18)*105));  // amputation douce (apparaît en modéré)
+    state.vneglect.delay     = clamp100(12 + t*63);                 // inertie / lenteur de traitement
+    state.vneglect.confusion = clamp100(Math.max(0,(t-0.10)*72));   // trouble visuospatial
+    state.vneglect.dropout   = clamp100(Math.max(0,(t-0.22)*78));   // décrochages d'attention
+    state.vneglect.asym      = clamp100(45 + t*45);                 // latéralisation globale
+  } else {
+    state.vneglect.on = false;
+  }
+
   syncUIFromState();
 }
 
@@ -1408,6 +1466,9 @@ uniform float uRpOn, uRpDiameter, uRpDim;
 uniform float uNysOn, uNysDir, uNysAmp, uNysFreq, uNysSacc, uNysBlur, uNysAmount, uNysAxisH;
 // Surcharge visuelle cognitive (détails parasites, perte de hiérarchie)
 uniform float uOverloadOn, uOverloadAmt;
+// Démence vasculaire : négligence spatiale + amputation douce asymétrique + lenteur
+// + décrochages d'attention + trouble visuospatial (atteinte neurologique, pas ophtalmo)
+uniform float uVascOn, uVascSide, uVascNeglect, uVascCut, uVascDelay, uVascConfusion, uVascDropout, uVascAsym;
 
 vec2 fitUv(vec2 uv){
   vec2 c = (uv-0.5)*uAspectFix + 0.5;
@@ -1747,6 +1808,82 @@ void main(){
     col = (col-0.5)*c + 0.5;
   }
 
+  // --- Démence vasculaire : atteinte NEUROLOGIQUE asymétrique du traitement visuel ---
+  // Volontairement DIFFÉRENTE des troubles ophtalmo :
+  //   • pas de tunnel circulaire régulier (≠ glaucome / rétinite) ;
+  //   • pas de scotome central dominant (≠ DMLA) ;
+  //   • pas de voile lumineux global (≠ cataracte) ni de taches multiples (≠ rétinopathie).
+  // Ici, le CERVEAU interprète mal l'image, surtout d'un côté : héminégligence,
+  // hémichamp amputé de façon douce et IRRÉGULIÈRE, lenteur/inertie, décrochages
+  // d'attention, léger trouble visuospatial. Coût mobile maîtrisé (quelques taps + noise),
+  // et l'effet n'est calculé que lorsqu'il est actif.
+  if(uVascOn > 0.5){
+    vec2 fuv = rotField(uv);                                   // repère aligné sur l'orientation écran
+    // sideAxis = 1.0 du côté NÉGLIGÉ, 0.0 du côté sain (gauche si side<0.5, sinon droite)
+    float sideAxis = (uVascSide < 0.5) ? (1.0 - fuv.x) : fuv.x;
+    float asym = 0.30 + uVascAsym * 0.70;                      // dose de latéralisation
+
+    // Champ de négligence : croît vers le bord atteint, MODULÉ par un bruit basse
+    // fréquence → certaines zones sont "oubliées", ce n'est ni une ligne ni un cercle net.
+    float grad = smoothstep(0.55 - 0.55*asym, 1.0, sideAxis);
+    float nLow = dmlaNoise(fuv*2.6 + uTime*0.02)*0.6 + dmlaNoise(fuv*6.0 + 4.1)*0.4;
+    float neglectField = clamp(grad * (0.60 + 0.75*(nLow-0.5)), 0.0, 1.0);
+
+    // 1) Trouble visuospatial + inertie : léger warp irrégulier et LENT (le cerveau
+    //    "stabilise" mal la scène), renforcé du côté atteint et vers les bords.
+    float slow = uTime * 0.22;
+    float edgeBias = smoothstep(0.35, 0.5, abs(fuv.x-0.5)) + smoothstep(0.35, 0.5, abs(fuv.y-0.5));
+    float warpAmt = (uVascConfusion*0.009 + uVascDelay*0.004) * (0.35 + neglectField + edgeBias*0.35);
+    vec2 w = vec2(
+       sin(fuv.y*7.0 + slow)      + 0.5*sin(fuv.y*17.0 - slow*1.3),
+       cos(fuv.x*6.0 - slow*0.9)  + 0.5*cos(fuv.x*15.0 + slow)
+    );
+    vec2 vuv = uv + w * warpAmt;
+
+    // 2) Micro-décrochages d'attention : taches LENTES où la lisibilité chute
+    //    (contraste/netteté), surtout du côté atteint. Pas de clignotement rapide.
+    float dropCell = dmlaNoise(fuv*4.0 + vec2(slow*0.35, -slow*0.28));
+    float drop = smoothstep(0.60, 0.90, dropCell) * uVascDropout * (0.30 + neglectField);
+
+    // 3) Reconstruit la couleur depuis l'uv distordu, puis flou local (traitement lent)
+    //    sur le côté atteint et les zones de décrochage.
+    vec3 vcol = sampleVideo(vuv);
+    float softAmt = clamp(neglectField*0.55 + drop, 0.0, 1.0);
+    if(softAmt > 0.01){
+      float r = (0.005 + uVascDelay*0.011) * softAmt;
+      vec3 acc = vcol;
+      acc += sampleVideo(vuv + vec2(r,0.0));
+      acc += sampleVideo(vuv - vec2(r,0.0));
+      acc += sampleVideo(vuv + vec2(0.0,r));
+      acc += sampleVideo(vuv - vec2(0.0,r));
+      vcol = mix(vcol, acc/5.0, softAmt);
+    }
+    col = vcol;
+
+    // 4) Héminégligence : baisse de SAILLANCE du côté atteint (contraste ↓, saturation ↓,
+    //    légère baisse de luminosité). Progressive, jamais coupée net.
+    float neg = neglectField * uVascNeglect;
+    col = (col - 0.5) * (1.0 - neg*0.50) + 0.5;                 // contraste local ↓
+    float g1 = dot(col, vec3(0.299,0.587,0.114));
+    col = mix(col, vec3(g1), neg*0.55);                        // désaturation
+    col *= (1.0 - neg*0.32);                                    // assombrissement doux
+    col = mix(col, vec3(dot(col, vec3(0.33))*0.9), drop*0.5);   // décrochage : contraste local ↓
+
+    // 5) Amputation DOUCE et IRRÉGULIÈRE d'un hémichamp (hémi/quadranopsie douce) :
+    //    assombrissement progressif vers le bord atteint, front ONDULÉ (bruit), avec un
+    //    léger biais vertical (un quadrant plus touché). Jamais une coupe verticale nette,
+    //    jamais un cercle, jamais du noir pur → voile sombre désaturé (origine cérébrale).
+    float cutFront = 0.66 - uVascCut*0.40;                                   // avancée du front
+    float wob = (dmlaNoise(fuv*vec2(2.0,5.0) + 9.1) - 0.5) * 0.20;           // bord ondulé
+    float quadBias = (fuv.y-0.5) * uVascCut * 0.30 * (uVascSide<0.5?1.0:-1.0);// biais quadranopsie
+    float front = cutFront + wob + quadBias;
+    float cut = smoothstep(front, front + 0.30, sideAxis) * uVascCut;
+    vec3 veil = vec3(dot(col, vec3(0.33))) * 0.10;
+    col = mix(col, veil, clamp(cut, 0.0, 1.0));
+
+    col = clamp(col, 0.0, 1.0);
+  }
+
   // --- Vision tunnel ---
   if(uTunnelOn > 0.5){
     float d2 = uTunnelDiameter * 0.5 + 0.03;
@@ -1858,6 +1995,7 @@ const U = {};
  'uRpOn','uRpDiameter','uRpDim',
  'uNysOn','uNysDir','uNysAmp','uNysFreq','uNysSacc','uNysBlur','uNysAmount','uNysAxisH',
  'uOverloadOn','uOverloadAmt',
+ 'uVascOn','uVascSide','uVascNeglect','uVascCut','uVascDelay','uVascConfusion','uVascDropout','uVascAsym',
  'uTex'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 
 /* ---------- Hallucinations (calque 2D) ---------- */
@@ -2955,6 +3093,16 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uOverloadOn, (demencesEnabled&&state.overload.on)?1:0);
     gl.uniform1f(U.uOverloadAmt, state.overload.amount/100);
 
+    // Démence vasculaire (atteinte neurologique asymétrique)
+    gl.uniform1f(U.uVascOn, (demencesEnabled&&state.vneglect.on)?1:0);
+    gl.uniform1f(U.uVascSide, state.vneglect.side);
+    gl.uniform1f(U.uVascNeglect,   state.vneglect.neglect/100);
+    gl.uniform1f(U.uVascCut,       state.vneglect.cut/100);
+    gl.uniform1f(U.uVascDelay,     state.vneglect.delay/100);
+    gl.uniform1f(U.uVascConfusion, state.vneglect.confusion/100);
+    gl.uniform1f(U.uVascDropout,   state.vneglect.dropout/100);
+    gl.uniform1f(U.uVascAsym,      state.vneglect.asym/100);
+
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, videoTex); gl.uniform1i(U.uTex,0);
 
     if(headsetMode){
@@ -3086,6 +3234,7 @@ applyStagePreset(15);
     photo:{d:'Photophobie : hypersensibilité à la lumière, éblouissement.',r:'Réf. symptôme à valider'},
     nystagmus:{d:'Nystagmus : mouvement oculaire involontaire, rythmique et saccadé. Difficulté à fixer un point, à lire, à attraper précisément — distinct de l\u2019instabilité cognitive de la démence.',r:'Réf. symptôme à valider'},
     overload:{d:'Surcharge visuelle : trop d\u2019informations traitées à la fois, perte de hiérarchie et de contours utiles, brouillard cognitif (Alzheimer modéré à sévère).',r:'Réf. symptôme à valider'},
+    vneglect:{d:'Démence vasculaire — atteinte neurologique ASYMÉTRIQUE du traitement visuel (post-AVC). Un hémichamp (gauche ou droit) est moins bien exploré et interprété : baisse de saillance (contraste/couleur/luminosité), amputation douce et irrégulière du champ, lenteur/inertie de la perception, micro-décrochages d\u2019attention, léger trouble visuospatial. À DISTINGUER des troubles ophtalmologiques : ce n\u2019est pas un tunnel régulier (glaucome), pas un scotome central (DMLA), pas un voile global (cataracte). Le côté atteint est tiré au sort au lancement, réglable en Expert.',r:'Réf. symptôme à valider'},
     bodySchema:{d:'Schéma corporel perturbé : simulation pédagogique d\u2019une perception corporelle et spatiale altérée. Les mains paraissent trop proches, trop grandes ou mal situées, ce qui peut gêner la préhension et la coordination visuo-motrice. Cet effet ne représente pas un symptôme universel de la démence — il illustre une mauvaise appréciation des distances et de la position du corps dans l\u2019espace (Alzheimer et vasculaire modérés/sévères ; fluctuant dans le Corps de Lewy).',r:'Réf. symptôme à valider'}
   };
 
@@ -3285,9 +3434,12 @@ applyStagePreset(15);
     // Corps de Lewy : hallucinations & instabilité présentes mais subtiles
     if(dt==='lewy'){ if(state.halluc.on) state.halluc.intensity=clamp100(state.halluc.intensity*0.8);
                      if(state.unstable.on) state.unstable.amplitude=clamp100(state.unstable.amplitude*0.8); }
-    // Vasculaire + hémianopsie : renforce la négligence d'un côté
+    // Vasculaire + hémianopsie : on aligne le côté NÉGLIGÉ (atteinte cérébrale) sur le
+    // côté amputé, et on atténue légèrement pour éviter un double assombrissement brutal.
     if(dt==='vasc' && vt==='hemianopsia'){ state.latency.on=true;
-      state.hemianopsia.opacity=clamp100(state.hemianopsia.opacity+5); }
+      state.vneglect.side = state.hemianopsia.side;
+      if(state.vneglect.on){ state.vneglect.cut = clamp100(state.vneglect.cut*0.6);
+                             state.hemianopsia.opacity = clamp100(state.hemianopsia.opacity*0.85); } }
     // Nystagmus : réduit fortement la "vision instable" démence, renforce la
     // difficulté de préhension, calme les hallucinations si Lewy.
     if(vt==='nystagmus'){
