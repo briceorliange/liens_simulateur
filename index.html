@@ -1131,9 +1131,9 @@ const DEMENTIA_PROFILES = {
     //    dominant en modéré ;
     //  • blur central, dim global et fog global maintenus FAIBLES et tardifs (évite le
     //    ressenti "dégradation ophtalmo générale").
-    blur:{w:0.5,thr:0.35}, contrast:{w:0.8,thr:0.20}, tunnel:{w:0.0,thr:1.10},
-    tint:{w:0.5,thr:0.45}, face:{w:0.8,thr:0.30}, latency:{w:0.85,thr:0.32},
-    dim:{w:0.5,thr:0.50}, fog:{w:0.5,thr:0.50}, depth:{w:1.0,thr:0.30},
+    blur:{w:0.45,thr:0.42}, contrast:{w:0.8,thr:0.20}, tunnel:{w:0.0,thr:1.10},
+    tint:{w:0.4,thr:0.55}, face:{w:0.8,thr:0.32}, latency:{w:0.85,thr:0.32},
+    dim:{w:0.45,thr:0.55}, fog:{w:0.45,thr:0.55}, depth:{w:1.0,thr:0.30},
     distort:{w:0.6,thr:0.45}, unstable:{w:0.7,thr:0.45}, halluc:{w:0.0,thr:1.10},
     overload:{w:0.85,thr:0.45}, bodySchema:{w:0.7,thr:0.45} }
 };
@@ -1181,18 +1181,18 @@ function applyStagePreset(v){
   if(currentType === 'vasc'){
     state.vneglect.on = t > 0.02;
     // Cibles : Léger t≈0.15 / Modéré t≈0.50 / Sévère t≈0.85
-    //   neglect   30 / 57 / 83   → négligence spatiale = effet DOMINANT
-    //   asym      65 / 78 / 91   → forte latéralisation dès le léger
-    //   delay     25 / 48 / 72   → lenteur de traitement (pas seulement la main)
-    //   confusion 10 / 37 / 65   → confusion spatiale croissante
-    //   dropout   10 / 38 / 66   → décrochages d'attention plus visibles en modéré/sévère
-    //   cut        3 / 26 / 50   → champ partiellement ignoré, diffus (jamais un quart net)
-    state.vneglect.neglect   = clamp100(19 + t*76);
-    state.vneglect.asym      = clamp100(60 + t*36);
-    state.vneglect.delay     = clamp100(15 + t*67);
-    state.vneglect.confusion = clamp100(Math.max(0,(t-0.02)*78));
-    state.vneglect.dropout   = clamp100(Math.max(0,(t-0.02)*80));
-    state.vneglect.cut       = clamp100(Math.max(0,(t-0.10)*66));
+    //   neglect   37 / 62 / 87   → négligence spatiale = effet DOMINANT (plus fort en léger)
+    //   asym      71 / 82 / 92   → forte latéralisation dès le léger
+    //   delay     27 / 50 / 72   → lenteur de traitement (pas seulement la main)
+    //   confusion 15 / 44 / 72   → confusion spatiale plus présente en modéré/sévère
+    //   dropout   16 / 44 / 72   → décrochages d'attention bien visibles en modéré/sévère
+    //   cut        3 / 20 / 38   → champ partiellement ignoré, faible et fragmenté (jamais un voile)
+    state.vneglect.neglect   = clamp100(26 + t*72);
+    state.vneglect.asym      = clamp100(66 + t*31);
+    state.vneglect.delay     = clamp100(18 + t*63);
+    state.vneglect.confusion = clamp100(3 + t*81);
+    state.vneglect.dropout   = clamp100(4 + t*80);
+    state.vneglect.cut       = clamp100(Math.max(0,(t-0.10)*50));
   } else {
     state.vneglect.on = false;
   }
@@ -1834,13 +1834,19 @@ void main(){
     float sideAxis = (uVascSide < 0.5) ? (1.0 - fuv.x) : fuv.x;
     float asym = 0.30 + uVascAsym * 0.70;                      // dose de latéralisation
 
-    // Champ de négligence : croît vers le bord atteint, MODULÉ par un bruit basse
-    // fréquence → certaines zones sont "oubliées", ce n'est ni une ligne ni un cercle net.
-    // Départ plus précoce (0.48-0.48*asym) et gain plus fort → la négligence couvre une
-    // plus grande part de l'hémichamp atteint et reste perceptible dès le stade léger.
-    float grad = smoothstep(0.48 - 0.48*asym, 1.02, sideAxis);
-    float nLow = dmlaNoise(fuv*2.6 + uTime*0.02)*0.6 + dmlaNoise(fuv*6.0 + 4.1)*0.4;
-    float neglectField = clamp(grad * (0.72 + 0.70*(nLow-0.5)), 0.0, 1.0);
+    // Champ de négligence : croît vers le bord atteint, mais rendu ORGANIQUE par un bruit
+    // multi-octave lent → au lieu d'un voile latéral continu, on obtient des POCHES de
+    // lisibilité (presque normales) et des POCHES de décrochage (mal traitées) qui
+    // fluctuent lentement. C'est ça qui évoque une négligence NEUROLOGIQUE, pas un filtre.
+    float tN = uTime*0.03;
+    float grad  = smoothstep(0.46 - 0.46*asym, 1.04, sideAxis);
+    float nLow  = dmlaNoise(fuv*2.3 + vec2(tN, -tN*0.7));            // grandes plages
+    float nMid  = dmlaNoise(fuv*5.5 + 4.1 + vec2(-tN*0.5, tN));     // variations moyennes
+    float nHi   = dmlaNoise(fuv*11.0 + 9.3);                        // grain fin (poches locales)
+    float organic = nLow*0.50 + nMid*0.32 + nHi*0.18;              // ≈ centré 0.5
+    // écarte du centre → alternance nette entre zones préservées et zones décrochées
+    float pockets = clamp(0.5 + (organic - 0.5)*1.9, 0.0, 1.0);
+    float neglectField = clamp(grad * mix(0.34, 1.18, pockets), 0.0, 1.0);
 
     // 1) Trouble visuospatial + inertie : léger warp irrégulier et LENT (le cerveau
     //    "stabilise" mal la scène), renforcé du côté atteint et vers les bords.
@@ -1852,13 +1858,18 @@ void main(){
        cos(fuv.x*6.0 - slow*0.9)  + 0.5*cos(fuv.x*15.0 + slow)
     );
     vec2 vuv = uv + w * warpAmt;
+    // Dérive lente d'ensemble (amplitude minime) : la scène semble "mal stabilisée",
+    // plus difficile à organiser. Volontairement TRÈS faible → pas d'effet aquatique.
+    vuv += vec2(sin(uTime*0.19)*0.0016, cos(uTime*0.16)*0.0013) * uVascConfusion;
 
-    // 2) Micro-décrochages d'attention : taches LENTES où la lisibilité chute
-    //    (contraste/netteté), surtout du côté atteint. Seuil abaissé → plus visibles
-    //    en modéré/sévère, tout en restant irréguliers et sans clignotement rapide.
-    float dropCell = dmlaNoise(fuv*4.0 + vec2(slow*0.35, -slow*0.28))*0.65
-                   + dmlaNoise(fuv*9.0 - vec2(slow*0.2, slow*0.15))*0.35;
-    float drop = smoothstep(0.55, 0.86, dropCell) * uVascDropout * (0.30 + neglectField);
+    // 2) Micro-décrochages d'attention : POCHES lentes et irrégulières où l'attention
+    //    "lâche" → perte locale de netteté/contraste/lisibilité (pas de tache colorée, pas
+    //    de clignotement, pas d'effet rétinopathie). Présents surtout du côté atteint,
+    //    mais un peu partout (l'attention décroche aussi ailleurs). Seuil abaissé → mieux
+    //    perçus en modéré/sévère.
+    float dropCell = dmlaNoise(fuv*3.6 + vec2(slow*0.30, -slow*0.24))*0.6
+                   + dmlaNoise(fuv*8.0 - vec2(slow*0.18, slow*0.13))*0.4;
+    float drop = smoothstep(0.52, 0.84, dropCell) * uVascDropout * (0.22 + neglectField);
 
     // 3) Reconstruit la couleur depuis l'uv distordu, puis flou local (traitement lent)
     //    sur le côté atteint et les zones de décrochage.
@@ -1883,26 +1894,25 @@ void main(){
     float g1 = dot(col, vec3(0.299,0.587,0.114));
     col = mix(col, vec3(g1), neg*0.62);                        // désaturation
     col *= (1.0 - neg*0.34);                                    // assombrissement doux
-    col = mix(col, vec3(dot(col, vec3(0.33))*0.88), drop*0.6);  // décrochage : contraste local ↓
+    col = mix(col, vec3(dot(col, vec3(0.33))*0.86), drop*0.65); // décrochage : contraste/lisibilité local ↓
 
-    // 5) "Champ partiellement ignoré" : perte de saillance DIFFUSE, large et IRRÉGULIÈRE
-    //    vers le côté atteint. Volontairement NON géométrique :
-    //      • transition très large (pas de bord net) ;
-    //      • front ondulé + modulé par un bruit lent → aspect patché et fluctuant ;
-    //      • pas de biais vertical marqué → latéral, jamais un "quart d'écran" propre ;
-    //      • rendu = image locale désaturée et assombrie AVEC PLANCHER (jamais noir),
-    //        c.-à-d. une perte de saillance NEUROLOGIQUE, pas un masque optique.
-    float cutStart = 0.74 - uVascCut*0.58;                       // le front avance largement en sévère
-    float cutSpan  = 0.55 + uVascCut*0.25;                       // zone de transition TRÈS large
-    float cutN = dmlaNoise(fuv*3.2 + vec2(-slow*0.30, slow*0.25))*0.6
-               + dmlaNoise(fuv*7.0 + 12.0)*0.4;                  // grain lent irrégulier
-    float wob = (cutN - 0.5) * (0.24 + uVascCut*0.12);           // front ondulé (aucune ligne droite)
+    // 5) "Champ partiellement ignoré" : PAS une coupure ni un voile continu. Perte de
+    //    saillance LATÉRALE, faible et FRAGMENTÉE par le même bruit organique que la
+    //    négligence → des poches restent partiellement visibles, d'autres décrochent.
+    //      • front avancé modérément (ne couvre jamais un demi-écran) ;
+    //      • transition large + front ondulé (aucune ligne droite) ;
+    //      • fragmenté par "pockets" → transparence irrégulière (jamais opaque) ;
+    //      • image locale seulement désaturée/assombrie avec PLANCHER (jamais noir).
+    float cutStart = 0.80 - uVascCut*0.46;                       // avancée modérée (pas de demi-écran)
+    float cutSpan  = 0.50 + uVascCut*0.22;                       // transition large
+    float wob = (organic - 0.5) * (0.26 + uVascCut*0.14);        // front ondulé (réutilise le bruit organique)
     float cutBase = smoothstep(cutStart + wob, cutStart + wob + cutSpan, sideAxis);
-    // patches : le bruit rend certaines zones plus/moins ignorées → atteinte fragmentée
-    float cut = clamp(cutBase * (0.50 + 0.70*cutN), 0.0, 1.0) * uVascCut;
+    // fragmentation : les poches préservées laissent passer l'image → aspect non uniforme
+    float cutFrag = clamp(0.35 + (pockets - 0.5)*1.6, 0.0, 1.0);
+    float cut = clamp(cutBase * cutFrag, 0.0, 0.72) * uVascCut;  // plafond d'opacité réduit
     float gcut = dot(col, vec3(0.299,0.587,0.114));
-    vec3 dull = mix(col, vec3(gcut), 0.72) * 0.60;              // gris-sombre désaturé
-    dull = max(dull, vec3(0.06));                               // PLANCHER : jamais totalement noir
+    vec3 dull = mix(col, vec3(gcut), 0.62) * 0.66;              // désaturé/assombri, garde de l'image
+    dull = max(dull, vec3(0.09));                               // PLANCHER plus clair : jamais noir
     col = mix(col, dull, cut);
 
     col = clamp(col, 0.0, 1.0);
