@@ -1753,72 +1753,98 @@ void main(){
   }
 
   // --- DMLA : métamorphopsie + scotome central ORGANIQUE ---
-  // [DMLA v9] Refonte du rendu :
-  //  • bord du scotome irrégulier (bruit angulaire), plus un cercle parfait ;
-  //  • couleur = voile gris → brun-gris sombre désaturé (jamais noir pur) ;
-  //  • variations de densité internes (marbrures) + micro-zones opaques en sévère ;
-  //  • transition progressive (assombrissement, pas de coupure nette) ;
-  //  • métamorphopsie renforcée avec l'intensité (grille d'Amsler) ;
-  //  • 3 stades clairement différenciés par uDmlaAmt :
-  //      Léger (~0.40)  : voile gris léger, flou central, ondulation discrète ;
-  //      Modéré (~0.65) : scotome gris-brun partiel, bords flous, détails masqués ;
-  //      Sévère (~0.90) : scotome large quasi opaque, taches internes, forte déformation.
-  //  La périphérie reste toujours intacte. Coût : quelques appels de value noise
-  //  (pas de texture, pas d'allocation, compatible mode casque).
-  // [DMLA v9.2] Retouches fines par stade :
-  //  • Léger  : gêne centrale subtile (contraste-, voile désaturé, micro-déformation) ;
-  //  • Modéré : métamorphopsie resserrée sur la macula (zone réduite + enveloppe pow),
-  //             centre un peu moins lisible ;
-  //  • Sévère : scotome moins compact — variations internes fortes, lacunes basse
-  //             fréquence, cœur gris-brun (pas noir), contour un peu plus déchiqueté.
+  // [DMLA v9.3] Correctif "rayons / triangles / zoom blur" :
+  //  PROBLÈME : le contour v9.x était piloté par un bruit ANGULAIRE
+  //  (dmlaNoise(aDir*2.2) : constant le long de chaque rayon → lobes
+  //  triangulaires rayonnant depuis le centre) et la métamorphopsie
+  //  déplaçait l'image le long de dir = normalize(uv-center) →
+  //  étirement radial type zoom blur, très visible en sévère.
+  //  CORRECTIF :
+  //  • forme = champ de MÉTABALLES 2D (1 masse centrale + 4 satellites
+  //    fusionnés, asymétriques) + bruit 2D positionnel : contour
+  //    patatoïde doux, aucun motif radial géométriquement possible ;
+  //  • métamorphopsie NON DIRECTIONNELLE : champ de bruit 2D +
+  //    ondulation Amsler, aucune composante convergeant vers le centre ;
+  //  • flou = disque isotrope 8 taps, il ADOUCIT le masque sans
+  //    agrandir ni étirer l'image caméra ;
+  //  • grain interne très lent (anti-aplat), lacunes translucides
+  //    statiques laissant filtrer de faibles fragments d'image ;
+  //  • sévère : scotome étendu, cœur ~80–95 % d'opacité variable,
+  //    gris-brun non uniforme, contour irrégulier et diffus.
+  //  La périphérie reste toujours intacte (aucune déformation radiale).
+  //  Coût : value noise + 4 métaballes (pas de texture, pas d'allocation,
+  //  compatible mode casque).
   if(uDmlaOn > 0.5){
     float amt  = uDmlaAmt;
     float d    = uDmlaDiam * 0.4 + 0.02;   // rayon de base du scotome
     vec2 q = (uv - center) * uAspectFix;     // aspect corrigé → zone circulaire
     float rr = length(q);
-    float ang = atan(q.y, q.x);
     float slow = uTime * 0.0004;             // dérive très lente (quasi statique)
 
     // [DMLA v9.2] Poids continus des 3 stades (pas de rupture entre presets) :
     //   mild     ≈ 1 vers amt 0.40 (léger)   → gêne centrale subtile, pas de tache ;
     //   moderate ≈ 1 vers amt 0.65 (modéré)  → effet recentré sur la macula ;
-    //   severe   ≈ 1 vers amt 0.90 (sévère)  → scotome marbré, lacunaire, moins compact.
+    //   severe   ≈ 1 vers amt 0.90 (sévère)  → scotome organique dense et étendu.
     float mild     = 1.0 - smoothstep(0.45, 0.60, amt);
     float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - smoothstep(0.75, 0.90, amt));
     float severe   = smoothstep(0.75, 0.90, amt);
 
-    // [DMLA v9] Bord irrégulier : rayon modulé par un bruit angulaire 2 octaves.
-    // L'irrégularité augmente avec la sévérité (léger ≈ halo doux, sévère ≈ tache déchiquetée).
-    // [DMLA v9.1] Contour "patatoïde" et non rayonnant : basse fréquence angulaire
-    // dominante + bruit positionnel 2D (varie aussi avec le rayon → pas de rayons).
-    vec2 aDir = vec2(cos(ang), sin(ang));
-    float edgeN = dmlaNoise(aDir*2.2 + 7.3 + slow) * 0.70
-                + dmlaNoise(q*8.0  + 3.1)          * 0.30;
-    float irr  = 0.08 + amt * 0.22 + severe * 0.06;     // [DMLA v9.2] contour sévère un peu plus déchiqueté
-    float dEff = d * (1.0 + (edgeN - 0.5) * 2.0 * irr);  // rayon effectif local
+    // ============================================================
+    // [DMLA v9.3] FORME DU SCOTOME : champ de métaballes 2D + bruit
+    // POSITIONNEL. Plus AUCUNE paramétrisation angulaire (atan/cos/sin
+    // de l'angle) → il est géométriquement impossible de produire des
+    // rayons, traînées ou triangles convergeant vers le centre.
+    // Le scotome = union de plusieurs masses arrondies FUSIONNÉES
+    // (1 masse centrale + 4 satellites asymétriques), modulée par un
+    // bruit 2D → contour patatoïde, irrégulier, doux et progressif.
+    // ============================================================
+    float ext = d * (0.62 + 0.55 * amt);        // le scotome s'étend avec la sévérité
+    vec2 p = q / max(ext, 1e-4);                 // coordonnées normalisées
 
-    // [DMLA v9.2] Zone de métamorphopsie RESSERRÉE en modéré (et un peu en sévère) :
-    // la périphérie de la page reste stable, la déformation se concentre sur la macula.
-    float zone = dEff * (1.6 - 0.35*moderate - 0.15*severe);
+    float f = 1.15 / (dot(p, p) + 0.28);         // masse centrale
+    vec2 c1 = vec2( 0.55,  0.30);                // satellites fixes (asymétrie voulue)
+    vec2 c2 = vec2(-0.52,  0.44);
+    vec2 c3 = vec2(-0.30, -0.58);
+    vec2 c4 = vec2( 0.38, -0.48);
+    f += 0.46 / (dot(p - c1, p - c1) + 0.20);
+    f += 0.38 / (dot(p - c2, p - c2) + 0.22);
+    f += 0.50 / (dot(p - c3, p - c3) + 0.20);
+    f += 0.34 / (dot(p - c4, p - c4) + 0.24);
+
+    // Irrégularité du contour : bruit 2D POSITIONNEL uniquement
+    // (varie en x ET en y → jamais de motif radial).
+    f *= 0.82 + 0.36 * dmlaNoise(q * 9.0  + 4.7);
+    f += (dmlaNoise(q * 22.0 + 13.0) - 0.5) * 0.35;
+
+    // shape : enveloppe globale à bord DOUX et progressif (adoucit
+    // uniquement le contour du masque — l'image caméra n'est ni
+    // agrandie ni déplacée) ; core : cœur dense du scotome.
+    float shape = smoothstep(0.80, 1.55, f);
+    float core  = smoothstep(1.20, 2.60, f);
+
+    // --- Métamorphopsie + baisse d'acuité centrale (zone maculaire) ---
+    float zone = d * (2.1 - 0.30 * moderate - 0.10 * severe);
     if(rr < zone){
-      vec2 dir  = normalize(uv - center);
       // enveloppe : nulle au bord, max dans l'anneau, réduite au centre exact
-      float env = (1.0 - smoothstep(zone*0.7, zone, rr)) * smoothstep(0.0, zone*0.2, rr);
-      // [DMLA v9.2] Chute plus rapide de la déformation en s'éloignant du centre
-      // (surtout en modéré) → les lignes proches du centre ondulent, pas toute la page.
-      env = pow(env, 1.0 + 0.5*moderate + 0.2*severe);
+      float env = (1.0 - smoothstep(zone * 0.7, zone, rr)) * smoothstep(0.0, zone * 0.2, rr);
+      env = pow(env, 1.0 + 0.5 * moderate + 0.2 * severe);
 
-      // 1) [DMLA v9] MÉTAMORPHOPSIE — amplitude qui croît nettement avec la sévérité.
-      float ripple = sin(rr*22.0 - slow*2.0)*0.6 + sin(rr*13.0 + ang*2.0 + slow*1.5)*0.4;
-      // [DMLA v9.2] + micro-déformation plancher en léger (fixation "moins fiable")
-      float wamp = (amt * (0.010 + amt*0.014) + mild*0.0015) * env;
-      vec2 duv  = dir * (wamp * ripple);
-      duv += vec2(-dir.y, dir.x) * wamp * 0.5 * sin(ang*3.0 + rr*18.0 + slow); // torsion douce
-      vec2 wuv = uv + duv;
+      // 1) [DMLA v9.3] MÉTAMORPHOPSIE NON DIRECTIONNELLE : déplacement
+      // par champ de bruit 2D + ondulation type grille d'Amsler.
+      // AUCUNE composante radiale (pas de normalize(uv-center)) →
+      // les lignes ondulent sans converger ni s'étirer vers le centre.
+      vec2 nOff;
+      nOff.x = (dmlaNoise(q * 12.0 + 3.1)  - 0.5) + 0.7 * sin(q.y * 42.0 + slow * 2.0);
+      nOff.y = (dmlaNoise(q * 12.0 + 47.0) - 0.5) + 0.7 * sin(q.x * 38.0 - slow * 1.6);
+      float wamp = (amt * (0.008 + amt * 0.010) + mild * 0.0015) * env;
+      vec2 wuv = uv + nOff * wamp;
       col = mix(col, sampleVideo(wuv), env);
 
-      // 2) Flou + perte d'acuité/contraste, concentrés vers le centre (rayon irrégulier).
-      float mask = 1.0 - smoothstep(dEff - 0.12, dEff, rr);
+      // 2) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
+      // (8 taps à rayon constant), masqué par la FORME du scotome.
+      // Sert uniquement à adoucir la lisibilité sous/autour du masque,
+      // sans zoom ni étirement de l'image caméra.
+      float mask = smoothstep(0.45, 1.10, f);
       if(mask > 0.001){
         float r = amt * 0.02;
         vec3 acc = sampleVideo(wuv); float n = 1.0;
@@ -1830,53 +1856,51 @@ void main(){
         vec3 blurred = acc / n;
         float g = dot(blurred, vec3(0.3,0.59,0.11));
         vec3 lowC = mix(blurred, vec3(g), 0.35 + amt*0.4) * (0.88 - amt*0.12);
-        // [DMLA v9.2] Centre un peu plus difficile à lire en modéré
-        col = mix(col, lowC, mask * min(amt + moderate*0.12, 1.0));
+        col = mix(col, lowC, mask * min(amt + moderate * 0.12, 1.0));
       }
 
-      // 2bis) [DMLA v9.2] LÉGER : gêne centrale très subtile — perte de contraste
-      // et légère désaturation au point de fixation. Pas de tache, pas de scotome.
+      // 2bis) LÉGER : gêne centrale très subtile — perte de contraste
+      // et légère désaturation au point de fixation. Pas de tache.
       if(mild > 0.001){
-        float cMask = 1.0 - smoothstep(dEff*0.15, dEff*0.70, rr);
-        vec3 softc = (col - 0.5) * 0.86 + 0.5;              // contraste local -14%
+        float cMask = 1.0 - smoothstep(d * 0.15, d * 0.70, rr);
+        vec3 softc = (col - 0.5) * 0.86 + 0.5;
         float gm = dot(softc, vec3(0.3,0.59,0.11));
-        softc = mix(softc, vec3(gm), 0.12);                 // voile désaturé discret
+        softc = mix(softc, vec3(gm), 0.12);
         col = mix(col, softc, cMask * mild * 0.9);
       }
+    }
 
-      // 3) [DMLA v9] SCOTOME ORGANIQUE : voile → tache sombre marbrée, jamais noir uniforme.
-      // Marbrures internes (2 échelles de bruit, statiques → pas de scintillement).
-      float tex = dmlaNoise(q*30.0 + 11.0)*0.6 + dmlaNoise(q*70.0 + 5.0)*0.4;
+    // --- 3) [DMLA v9.3] SCOTOME ORGANIQUE : tache sombre marbrée ---
+    if(shape > 0.001){
+      // Marbrures internes (2 échelles de bruit statiques) + grain
+      // TRÈS lent (dérive quasi imperceptible, aucune pulsation).
+      float tex   = dmlaNoise(q * 30.0 + 11.0) * 0.6 + dmlaNoise(q * 70.0 + 5.0) * 0.4;
+      float grain = dmlaNoise(q * 60.0 + vec2(slow * 30.0, -slow * 22.0));
 
-      // Étendue et douceur du cœur : le scotome grandit et se densifie avec amt,
-      // mais garde toujours un bord PROGRESSIF (assombrissement graduel).
-      float coreR    = dEff * (0.35 + amt*0.45);
-      float edgeSoft = dEff * (0.50 - amt*0.18);
-      float core = 1.0 - smoothstep(coreR - edgeSoft, coreR + edgeSoft*0.5, rr);
+      // Opacité : léger = voile translucide ; SÉVÈRE ≈ 0.80–0.95 dans
+      // le cœur (presque opaque mais jamais aplat uniforme).
+      float dens = shape * smoothstep(0.12, 0.95, amt) * (0.55 + 0.45 * core);
+      dens *= mix(0.86 + 0.14 * tex,            // léger/modéré : marbrures discrètes
+                  mix(0.80, 0.96, tex),          // sévère : opacité variable 80–96 %
+                  severe);
+      // Lacunes basse fréquence : zones légèrement plus claires /
+      // translucides où de très faibles fragments d'image filtrent
+      // (statiques, sans effet directionnel).
+      dens *= 1.0 - (0.10 + severe * 0.22) * smoothstep(0.55, 0.85, dmlaNoise(q * 9.0 + 21.0));
+      // Grain lent anti-aplat (±3 %, dérive lente, pas de scintillement).
+      dens *= 0.97 + 0.06 * grain;
 
-      // Opacité globale : léger = voile translucide, sévère = quasi opaque.
-      float dens = core * smoothstep(0.12, 0.95, amt);
-      // [DMLA v9.2] Densité interne : marbrures discrètes en léger/modéré,
-      // variations fortes en sévère (zone abîmée, jamais bloc uniforme).
-      dens *= mix(0.86 + 0.14 * tex, mix(0.72, 1.05, tex), severe);
-      // [DMLA v9.2] Lacunes basse fréquence en sévère : zones où le scotome
-      // laisse filtrer un peu d'image → aspect brouillé et lacunaire.
-      dens *= 1.0 - severe * 0.35 * smoothstep(0.55, 0.85, dmlaNoise(q*9.0 + 21.0));
-
-      // Couleur : gris voilé (léger) → brun-gris sombre désaturé (sévère).
-      // [DMLA v9.2] Cœur sévère légèrement éclairci (gris-brun, pas noir compact).
+      // Couleur : gris voilé (léger) → brun-gris sombre non uniforme (sévère).
       vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.13, 0.11, 0.095),
                       smoothstep(0.30, 0.90, amt));
-      veil *= 0.91 + 0.18 * tex;                       // [v9.1] marbrures plus subtiles
+      veil *= 0.91 + 0.18 * tex;
       col = mix(col, veil, clamp(dens, 0.0, 1.0));
 
-      // 4) [DMLA v9] Micro-zones opaques (stade sévère uniquement) :
-      // ilots plus denses et sombres à l'intérieur du scotome, bords tachetés.
-      // [DMLA v9.2] seuil aligné sur le poids severe (0.75 -> 0.90)
+      // 4) Micro-zones plus denses (sévère) : îlots sombres internes,
+      // positionnés par bruit 2D (aucun motif radial possible).
       if(severe > 0.001){
-        // [v9.1] Îlots plus doux : transition large + opacité réduite (présents mais discrets)
-        float spots = smoothstep(0.50, 0.92, dmlaNoise(q*18.0 + 2.7));
-        col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2*tex), core * spots * severe * 0.45);
+        float spots = smoothstep(0.50, 0.92, dmlaNoise(q * 18.0 + 2.7));
+        col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2 * tex), core * spots * severe * 0.45);
       }
     }
   }
