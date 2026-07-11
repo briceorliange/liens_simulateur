@@ -1600,6 +1600,13 @@ float dmlaNoise(vec2 p){
   float d = dmlaHash(i + vec2(1.0, 1.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
+// [DMLA v9.3b] Blob à SUPPORT COMPACT : vaut 1 au centre, 0 au-delà du rayon R.
+// Garantit une étendue maximale bornée du scotome (impossible de couvrir l'écran).
+float dmlaBlob(vec2 p, vec2 c, float R){
+  float x = length(p - c) / R;
+  float k = max(1.0 - x * x, 0.0);
+  return k * k;
+}
 
 void main(){
   vec2 uv = vUv;
@@ -1798,32 +1805,34 @@ void main(){
     // (1 masse centrale + 4 satellites asymétriques), modulée par un
     // bruit 2D → contour patatoïde, irrégulier, doux et progressif.
     // ============================================================
-    float ext = d * (0.62 + 0.55 * amt);        // le scotome s'étend avec la sévérité
+    // [DMLA v9.3b] Étendue BORNÉE : le rayon max du scotome vaut ~d
+    // (comme en v9.2), légèrement plus en sévère — la périphérie reste
+    // toujours dégagée, quel que soit l'écran (blobs à support compact).
+    float ext = d * (0.55 + 0.15 * severe);   // [v9.3c] scotome sévère recentré (~40-50% de l'image)
     vec2 p = q / max(ext, 1e-4);                 // coordonnées normalisées
 
-    float f = 1.15 / (dot(p, p) + 0.28);         // masse centrale
-    vec2 c1 = vec2( 0.55,  0.30);                // satellites fixes (asymétrie voulue)
-    vec2 c2 = vec2(-0.52,  0.44);
-    vec2 c3 = vec2(-0.30, -0.58);
-    vec2 c4 = vec2( 0.38, -0.48);
-    f += 0.46 / (dot(p - c1, p - c1) + 0.20);
-    f += 0.38 / (dot(p - c2, p - c2) + 0.22);
-    f += 0.50 / (dot(p - c3, p - c3) + 0.20);
-    f += 0.34 / (dot(p - c4, p - c4) + 0.24);
+    // Union de masses arrondies FUSIONNÉES (1 centrale + 4 satellites
+    // asymétriques). Portée max ≈ 1.2 * ext, garantie par le support compact.
+    float f = 1.00 * dmlaBlob(p, vec2( 0.00,  0.00), 1.00)
+            + 0.75 * dmlaBlob(p, vec2( 0.42,  0.24), 0.75)
+            + 0.65 * dmlaBlob(p, vec2(-0.40,  0.34), 0.70)
+            + 0.80 * dmlaBlob(p, vec2(-0.22, -0.44), 0.78)
+            + 0.60 * dmlaBlob(p, vec2( 0.30, -0.38), 0.68);
 
     // Irrégularité du contour : bruit 2D POSITIONNEL uniquement
-    // (varie en x ET en y → jamais de motif radial).
-    f *= 0.82 + 0.36 * dmlaNoise(q * 9.0  + 4.7);
-    f += (dmlaNoise(q * 22.0 + 13.0) - 0.5) * 0.35;
+    // (varie en x ET en y → jamais de motif radial). Le bruit additif
+    // est fenêtré par f → ne peut pas créer de taches hors du support.
+    f *= 0.80 + 0.40 * dmlaNoise(q * 9.0  + 4.7);
+    f += (dmlaNoise(q * 22.0 + 13.0) - 0.5) * 0.30 * smoothstep(0.0, 0.15, f);
 
     // shape : enveloppe globale à bord DOUX et progressif (adoucit
     // uniquement le contour du masque — l'image caméra n'est ni
     // agrandie ni déplacée) ; core : cœur dense du scotome.
-    float shape = smoothstep(0.80, 1.55, f);
-    float core  = smoothstep(1.20, 2.60, f);
+    float shape = smoothstep(0.18, 0.85, f);
+    float core  = smoothstep(0.55, 1.60, f);
 
     // --- Métamorphopsie + baisse d'acuité centrale (zone maculaire) ---
-    float zone = d * (2.1 - 0.30 * moderate - 0.10 * severe);
+    float zone = d * (1.6 - 0.30 * moderate - 0.10 * severe);
     if(rr < zone){
       // enveloppe : nulle au bord, max dans l'anneau, réduite au centre exact
       float env = (1.0 - smoothstep(zone * 0.7, zone, rr)) * smoothstep(0.0, zone * 0.2, rr);
@@ -1844,7 +1853,7 @@ void main(){
       // (8 taps à rayon constant), masqué par la FORME du scotome.
       // Sert uniquement à adoucir la lisibilité sous/autour du masque,
       // sans zoom ni étirement de l'image caméra.
-      float mask = smoothstep(0.45, 1.10, f);
+      float mask = smoothstep(0.10, 0.75, f);
       if(mask > 0.001){
         float r = amt * 0.02;
         vec3 acc = sampleVideo(wuv); float n = 1.0;
