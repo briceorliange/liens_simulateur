@@ -1781,6 +1781,11 @@ void main(){
   //  La périphérie reste toujours intacte (aucune déformation radiale).
   //  Coût : value noise + 4 métaballes (pas de texture, pas d'allocation,
   //  compatible mode casque).
+  // [DMLA v9.4] Fin de l'effet "eau / heat-wave" : la métamorphopsie
+  //  n'utilise plus de sinusoïdes animées (sin/slow supprimés) mais un
+  //  gradient de bruit 2D STATIQUE multi-échelle, confiné à une zone
+  //  maculaire resserrée (rétrécie encore en sévère). Déformation locale
+  //  et organique ; périphérie stable et exploitable aux 3 stades.
   if(uDmlaOn > 0.5){
     float amt  = uDmlaAmt;
     float d    = uDmlaDiam * 0.4 + 0.02;   // rayon de base du scotome
@@ -1832,22 +1837,29 @@ void main(){
     float core  = smoothstep(0.55, 1.60, f);
 
     // --- Métamorphopsie + baisse d'acuité centrale (zone maculaire) ---
-    float zone = d * (1.6 - 0.30 * moderate - 0.10 * severe);
+    // [DMLA v9.4] Zone RESSERRÉE autour de la macula. En sévère elle
+    // rétrécit encore (déformation LOCALE, pas globale) → fin de l'effet
+    // "vague / heat-wave" qui s'étendait sur tout le champ.
+    float zone = d * (1.15 + 0.25 * moderate - 0.25 * severe);
     if(rr < zone){
-      // enveloppe : nulle au bord, max dans l'anneau, réduite au centre exact
-      float env = (1.0 - smoothstep(zone * 0.7, zone, rr)) * smoothstep(0.0, zone * 0.2, rr);
-      env = pow(env, 1.0 + 0.5 * moderate + 0.2 * severe);
+      // Décroissance radiale douce : maximale AU CENTRE, nulle au bord de
+      // zone. pow() la resserre encore en modéré/sévère → périphérie stable.
+      float t    = clamp(rr / zone, 0.0, 1.0);
+      float fall = 1.0 - smoothstep(0.0, 1.0, t);
+      fall = pow(fall, 1.0 + 0.6 * moderate + 1.1 * severe);
 
-      // 1) [DMLA v9.3] MÉTAMORPHOPSIE NON DIRECTIONNELLE : déplacement
-      // par champ de bruit 2D + ondulation type grille d'Amsler.
-      // AUCUNE composante radiale (pas de normalize(uv-center)) →
-      // les lignes ondulent sans converger ni s'étirer vers le centre.
+      // 1) [DMLA v9.4] MÉTAMORPHOPSIE ORGANIQUE, NON DIRECTIONNELLE et
+      // STATIQUE : déplacement par gradient de bruit 2D multi-échelle.
+      // Plus AUCUNE sinusoïde ni animation (sin/slow supprimés) → aucune
+      // ondulation liquide régulière, aucune composante radiale. Les
+      // lignes droites se courbent irrégulièrement près du centre puis
+      // redeviennent nettes en s'éloignant.
       vec2 nOff;
-      nOff.x = (dmlaNoise(q * 12.0 + 3.1)  - 0.5) + 0.7 * sin(q.y * 42.0 + slow * 2.0);
-      nOff.y = (dmlaNoise(q * 12.0 + 47.0) - 0.5) + 0.7 * sin(q.x * 38.0 - slow * 1.6);
-      float wamp = (amt * (0.008 + amt * 0.010) + mild * 0.0015) * env;
+      nOff.x = (dmlaNoise(q * 14.0 + 3.1)  - 0.5) + 0.5 * (dmlaNoise(q * 29.0 + 19.0) - 0.5);
+      nOff.y = (dmlaNoise(q * 14.0 + 41.0) - 0.5) + 0.5 * (dmlaNoise(q * 29.0 + 63.0) - 0.5);
+      float wamp = (0.005 + amt * 0.011) * fall;
       vec2 wuv = uv + nOff * wamp;
-      col = mix(col, sampleVideo(wuv), env);
+      col = mix(col, sampleVideo(wuv), fall);
 
       // 2) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
       // (8 taps à rayon constant), masqué par la FORME du scotome.
