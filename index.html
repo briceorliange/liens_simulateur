@@ -1843,27 +1843,26 @@ void main(){
     float core  = smoothstep(0.50, 1.75, f);
 
     // --- Métamorphopsie + baisse d'acuité (anneau PARACENTRAL) ---
-    // [DMLA v9.5] La déformation est MAXIMALE sur l'anneau qui borde le
-    // scotome (là où l'image reste visible), pas au centre opaque où on
-    // ne la verrait pas. Elle décroît vers la périphérie → lignes
-    // courbées visibles TOUT AUTOUR de la tache, champ lointain stable.
-    float edgeR = ext * (1.00 + 0.10 * severe);      // rayon du bord du scotome
-    float zone  = edgeR + d * (1.05 + 0.20 * moderate); // portée de l'anneau
+    // [DMLA v9.6] Déformation LISSE et BASSE FRÉQUENCE : les lignes se
+    // bombent doucement autour du scotome (fini l'aspect "tremblé / dents
+    // de scie" dû à un bruit trop haute fréquence). Amplitude maximale
+    // sur l'anneau qui borde la tache, nulle au centre et en périphérie.
+    float edgeR = ext * (1.00 + 0.10 * severe);          // rayon du bord du scotome
+    float band  = ext * (0.70 + 0.20 * moderate + 0.15 * severe);
+    float ring  = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
+    float zone  = edgeR + band * 2.2;                    // portée de l'anneau
     if(rr < zone){
-      // Anneau gaussien centré sur le bord du scotome (pas au centre).
-      float band = ext * (0.85 + 0.25 * moderate + 0.15 * severe);
-      float ring = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
-      float outer = 1.0 - smoothstep(zone * 0.75, zone, rr);  // fondu périphérique
-      float fall = ring * outer;
+      float outer = 1.0 - smoothstep(zone * 0.7, zone, rr);  // fondu périphérique
+      float fall  = ring * outer;
 
-      // 1) [DMLA v9.5] MÉTAMORPHOPSIE ORGANIQUE, NON DIRECTIONNELLE et
-      // STATIQUE : déplacement par gradient de fbm 2D (lignes courbées
-      // irrégulières). Aucune sinusoïde, aucune animation, aucune
-      // composante radiale. L'amplitude suit l'anneau ci-dessus.
+      // 1) [DMLA v9.6] MÉTAMORPHOPSIE ORGANIQUE, NON DIRECTIONNELLE et
+      // STATIQUE : déplacement par fbm 2D TRÈS BASSE fréquence (q*3.5 +
+      // q*7) → grandes ondulations douces, pas de jitter. Aucune
+      // sinusoïde, aucune animation, aucune composante radiale.
       vec2 nOff;
-      nOff.x = (dmlaFbm(q * 12.0 + 3.1)  - 0.5) + 0.5 * (dmlaFbm(q * 26.0 + 19.0) - 0.5);
-      nOff.y = (dmlaFbm(q * 12.0 + 41.0) - 0.5) + 0.5 * (dmlaFbm(q * 26.0 + 63.0) - 0.5);
-      float wamp = (0.008 + amt * 0.016) * fall;
+      nOff.x = (dmlaFbm(q * 3.5 + 3.1)  - 0.5) + 0.35 * (dmlaFbm(q * 7.0 + 19.0) - 0.5);
+      nOff.y = (dmlaFbm(q * 3.5 + 41.0) - 0.5) + 0.35 * (dmlaFbm(q * 7.0 + 63.0) - 0.5);
+      float wamp = (0.005 + amt * 0.013) * fall;
       vec2 wuv = uv + nOff * wamp;
       col = mix(col, sampleVideo(wuv), fall);
 
