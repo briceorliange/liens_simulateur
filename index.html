@@ -1602,6 +1602,13 @@ float dmlaNoise(vec2 p){
 }
 // [DMLA v9.3b] Blob à SUPPORT COMPACT : vaut 1 au centre, 0 au-delà du rayon R.
 // Garantit une étendue maximale bornée du scotome (impossible de couvrir l'écran).
+// [DMLA v9.5] fbm : somme d'octaves de value-noise → texture douce et
+// organique, SANS grosses cellules carrées visibles (fin du "pixelisé").
+float dmlaFbm(vec2 p){
+  float v = 0.0, a = 0.5;
+  for(int i=0;i<4;i++){ v += a * dmlaNoise(p); p = p*2.03 + 17.3; a *= 0.5; }
+  return v;
+}
 float dmlaBlob(vec2 p, vec2 c, float R){
   float x = length(p - c) / R;
   float k = max(1.0 - x * x, 0.0);
@@ -1824,40 +1831,39 @@ void main(){
             + 0.80 * dmlaBlob(p, vec2(-0.22, -0.44), 0.78)
             + 0.60 * dmlaBlob(p, vec2( 0.30, -0.38), 0.68);
 
-    // Irrégularité du contour : bruit 2D POSITIONNEL uniquement
-    // (varie en x ET en y → jamais de motif radial). Le bruit additif
-    // est fenêtré par f → ne peut pas créer de taches hors du support.
-    f *= 0.80 + 0.40 * dmlaNoise(q * 9.0  + 4.7);
-    f += (dmlaNoise(q * 22.0 + 13.0) - 0.5) * 0.30 * smoothstep(0.0, 0.15, f);
+    // Irrégularité du contour : fbm 2D POSITIONNEL (multi-octaves →
+    // pas de grosses cellules carrées) ; jamais de motif radial. Le bruit
+    // additif est fenêtré par f → ne peut créer de taches hors du support.
+    f *= 0.86 + 0.28 * dmlaFbm(q * 16.0 + 4.7);
+    f += (dmlaFbm(q * 34.0 + 13.0) - 0.5) * 0.20 * smoothstep(0.0, 0.15, f);
 
-    // shape : enveloppe globale à bord DOUX et progressif (adoucit
-    // uniquement le contour du masque — l'image caméra n'est ni
-    // agrandie ni déplacée) ; core : cœur dense du scotome.
-    float shape = smoothstep(0.18, 0.85, f);
-    float core  = smoothstep(0.55, 1.60, f);
+    // shape : enveloppe à bord TRÈS progressif (plage large → dégradé
+    // doux, plus de marche d'escalier "pixelisée") ; core : cœur dense.
+    float shape = smoothstep(0.10, 1.00, f);
+    float core  = smoothstep(0.50, 1.75, f);
 
-    // --- Métamorphopsie + baisse d'acuité centrale (zone maculaire) ---
-    // [DMLA v9.4] Zone RESSERRÉE autour de la macula. En sévère elle
-    // rétrécit encore (déformation LOCALE, pas globale) → fin de l'effet
-    // "vague / heat-wave" qui s'étendait sur tout le champ.
-    float zone = d * (1.15 + 0.25 * moderate - 0.25 * severe);
+    // --- Métamorphopsie + baisse d'acuité (anneau PARACENTRAL) ---
+    // [DMLA v9.5] La déformation est MAXIMALE sur l'anneau qui borde le
+    // scotome (là où l'image reste visible), pas au centre opaque où on
+    // ne la verrait pas. Elle décroît vers la périphérie → lignes
+    // courbées visibles TOUT AUTOUR de la tache, champ lointain stable.
+    float edgeR = ext * (1.00 + 0.10 * severe);      // rayon du bord du scotome
+    float zone  = edgeR + d * (1.05 + 0.20 * moderate); // portée de l'anneau
     if(rr < zone){
-      // Décroissance radiale douce : maximale AU CENTRE, nulle au bord de
-      // zone. pow() la resserre encore en modéré/sévère → périphérie stable.
-      float t    = clamp(rr / zone, 0.0, 1.0);
-      float fall = 1.0 - smoothstep(0.0, 1.0, t);
-      fall = pow(fall, 1.0 + 0.6 * moderate + 1.1 * severe);
+      // Anneau gaussien centré sur le bord du scotome (pas au centre).
+      float band = ext * (0.85 + 0.25 * moderate + 0.15 * severe);
+      float ring = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
+      float outer = 1.0 - smoothstep(zone * 0.75, zone, rr);  // fondu périphérique
+      float fall = ring * outer;
 
-      // 1) [DMLA v9.4] MÉTAMORPHOPSIE ORGANIQUE, NON DIRECTIONNELLE et
-      // STATIQUE : déplacement par gradient de bruit 2D multi-échelle.
-      // Plus AUCUNE sinusoïde ni animation (sin/slow supprimés) → aucune
-      // ondulation liquide régulière, aucune composante radiale. Les
-      // lignes droites se courbent irrégulièrement près du centre puis
-      // redeviennent nettes en s'éloignant.
+      // 1) [DMLA v9.5] MÉTAMORPHOPSIE ORGANIQUE, NON DIRECTIONNELLE et
+      // STATIQUE : déplacement par gradient de fbm 2D (lignes courbées
+      // irrégulières). Aucune sinusoïde, aucune animation, aucune
+      // composante radiale. L'amplitude suit l'anneau ci-dessus.
       vec2 nOff;
-      nOff.x = (dmlaNoise(q * 14.0 + 3.1)  - 0.5) + 0.5 * (dmlaNoise(q * 29.0 + 19.0) - 0.5);
-      nOff.y = (dmlaNoise(q * 14.0 + 41.0) - 0.5) + 0.5 * (dmlaNoise(q * 29.0 + 63.0) - 0.5);
-      float wamp = (0.005 + amt * 0.011) * fall;
+      nOff.x = (dmlaFbm(q * 12.0 + 3.1)  - 0.5) + 0.5 * (dmlaFbm(q * 26.0 + 19.0) - 0.5);
+      nOff.y = (dmlaFbm(q * 12.0 + 41.0) - 0.5) + 0.5 * (dmlaFbm(q * 26.0 + 63.0) - 0.5);
+      float wamp = (0.008 + amt * 0.016) * fall;
       vec2 wuv = uv + nOff * wamp;
       col = mix(col, sampleVideo(wuv), fall);
 
@@ -1895,8 +1901,8 @@ void main(){
     if(shape > 0.001){
       // Marbrures internes (2 échelles de bruit statiques) + grain
       // TRÈS lent (dérive quasi imperceptible, aucune pulsation).
-      float tex   = dmlaNoise(q * 30.0 + 11.0) * 0.6 + dmlaNoise(q * 70.0 + 5.0) * 0.4;
-      float grain = dmlaNoise(q * 60.0 + vec2(slow * 30.0, -slow * 22.0));
+      float tex   = dmlaFbm(q * 18.0 + 11.0);   // fbm → marbrures douces, pas de carrés
+      float grain = dmlaFbm(q * 40.0 + vec2(slow * 20.0, -slow * 15.0));
 
       // Opacité : léger = voile translucide ; SÉVÈRE ≈ 0.80–0.95 dans
       // le cœur (presque opaque mais jamais aplat uniforme).
@@ -1907,7 +1913,7 @@ void main(){
       // Lacunes basse fréquence : zones légèrement plus claires /
       // translucides où de très faibles fragments d'image filtrent
       // (statiques, sans effet directionnel).
-      dens *= 1.0 - (0.10 + severe * 0.22) * smoothstep(0.55, 0.85, dmlaNoise(q * 9.0 + 21.0));
+      dens *= 1.0 - (0.10 + severe * 0.22) * smoothstep(0.55, 0.85, dmlaFbm(q * 7.0 + 21.0));
       // Grain lent anti-aplat (±3 %, dérive lente, pas de scintillement).
       dens *= 0.97 + 0.06 * grain;
 
@@ -1920,7 +1926,7 @@ void main(){
       // 4) Micro-zones plus denses (sévère) : îlots sombres internes,
       // positionnés par bruit 2D (aucun motif radial possible).
       if(severe > 0.001){
-        float spots = smoothstep(0.50, 0.92, dmlaNoise(q * 18.0 + 2.7));
+        float spots = smoothstep(0.55, 0.95, dmlaFbm(q * 12.0 + 2.7));
         col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2 * tex), core * spots * severe * 0.45);
       }
     }
