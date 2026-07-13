@@ -1843,27 +1843,34 @@ void main(){
     float core  = smoothstep(0.50, 1.75, f);
 
     // --- Métamorphopsie + baisse d'acuité (anneau PARACENTRAL) ---
-    // [DMLA v9.6] Déformation LISSE et BASSE FRÉQUENCE : les lignes se
-    // bombent doucement autour du scotome (fini l'aspect "tremblé / dents
-    // de scie" dû à un bruit trop haute fréquence). Amplitude maximale
-    // sur l'anneau qui borde la tache, nulle au centre et en périphérie.
-    float edgeR = ext * (1.00 + 0.10 * severe);          // rayon du bord du scotome
-    float band  = ext * (0.70 + 0.20 * moderate + 0.15 * severe);
+    // [DMLA v9.7] Déformation type GRILLE D'AMSLER : les lignes sont
+    // doucement CONTRACTÉES vers le centre (pincement/pincushion) dans une
+    // COURONNE autour du scotome, et parfaitement droites ailleurs. C'est
+    // un warp radial LISSE, LOCAL et de faible amplitude — à ne pas
+    // confondre avec l'ancien "zoom blur / rayons" (étirement de toute
+    // l'image) qui, lui, reste banni. Le profil en anneau gaussien garantit
+    // un déplacement NUL au centre exact et NUL en périphérie.
+    float edgeR = ext * (1.05 + 0.10 * severe);          // rayon du bord du scotome
+    float band  = ext * (0.55 + 0.15 * moderate + 0.15 * severe);
     float ring  = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
-    float zone  = edgeR + band * 2.2;                    // portée de l'anneau
+    float zone  = edgeR + band * 2.4;                    // portée de l'anneau
     if(rr < zone){
-      float outer = 1.0 - smoothstep(zone * 0.7, zone, rr);  // fondu périphérique
-      float fall  = ring * outer;
+      float inner = smoothstep(0.0, edgeR * 0.55, rr);       // → 0 au centre exact
+      float outer = 1.0 - smoothstep(zone * 0.7, zone, rr);  // → 0 en périphérie
+      float fall  = ring * inner * outer;
 
-      // 1) [DMLA v9.6] MÉTAMORPHOPSIE ORGANIQUE, NON DIRECTIONNELLE et
-      // STATIQUE : déplacement par fbm 2D TRÈS BASSE fréquence (q*3.5 +
-      // q*7) → grandes ondulations douces, pas de jitter. Aucune
-      // sinusoïde, aucune animation, aucune composante radiale.
-      vec2 nOff;
-      nOff.x = (dmlaFbm(q * 3.5 + 3.1)  - 0.5) + 0.35 * (dmlaFbm(q * 7.0 + 19.0) - 0.5);
-      nOff.y = (dmlaFbm(q * 3.5 + 41.0) - 0.5) + 0.35 * (dmlaFbm(q * 7.0 + 63.0) - 0.5);
-      float wamp = (0.005 + amt * 0.013) * fall;
-      vec2 wuv = uv + nOff * wamp;
+      // 1) [DMLA v9.7] Warp d'Amsler : direction RADIALE (vers le centre)
+      // pour contracter les lignes, plus une légère composante tangentielle
+      // et une irrégularité basse fréquence (fbm) → pincement organique et
+      // asymétrique, jamais un cône parfait. Statique, aucune animation.
+      vec2 dir  = (rr > 1e-4) ? q / rr : vec2(0.0);          // radial unitaire
+      vec2 tang = vec2(-dir.y, dir.x);                       // tangentiel
+      float irr  = 0.75 + 0.5 * dmlaFbm(q * 3.0 + 7.0);      // asymétrie douce
+      float swirl = (dmlaFbm(q * 3.0 + 20.0) - 0.5) * 2.0;   // ondulation latérale
+      // +dir = contraction vers le centre (pincushion, comme l'Amsler)
+      vec2 warp = (dir * 0.85 + tang * 0.30 * swirl) * irr;
+      float wamp = (0.006 + amt * 0.018) * fall;
+      vec2 wuv = uv + (warp / uAspectFix) * wamp;
       col = mix(col, sampleVideo(wuv), fall);
 
       // 2) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
