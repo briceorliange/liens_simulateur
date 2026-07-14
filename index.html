@@ -1870,8 +1870,12 @@ void main(){
       // +dir = contraction vers le centre (pincushion, comme l'Amsler)
       vec2 warp = (dir * 0.85 + tang * 0.30 * swirl) * irr;
       float wamp = (0.006 + amt * 0.018) * fall;
-      vec2 wuv = uv + (warp / uAspectFix) * wamp;
-      col = mix(col, sampleVideo(wuv), fall);
+      vec2 wuv = uv + (warp / uAspectFix) * wamp;   // décalage déjà pondéré par fall
+      // [DMLA v9.8] REMPLACEMENT (et non mix) : on n'affiche QUE l'image
+      // ré-échantillonnée aux coordonnées déformées. Le décalage tendant
+      // vers 0 aux bords (fall→0), la transition reste douce SANS
+      // superposer une version non déformée → fini l'image "fantôme".
+      col = sampleVideo(wuv);
 
       // 2) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
       // (8 taps à rayon constant), masqué par la FORME du scotome.
