@@ -450,7 +450,7 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <span class="mc-go">›</span>
       </button>
     </div>
-    <div class="home-foot">v8 · Pupitre démence + trouble visuel · Nystagmus · bascule Sans/Avec effet</div>
+    <div class="home-foot">v9.9 · DMLA refondue : warp organique (sans rayons), périphérie stable, diamètre corrigé, cumul des effets préservé</div>
   </section>
 
   <!-- ===== ÉCRAN DÉMO — Pupitre simplifié (cumul démence + trouble visuel) ===== -->
@@ -1025,8 +1025,8 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
-        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="35"></div>
-        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="60"></div>
+        <div class="sub-row"><label>Diamètre</label><input type="range" class="fx-sub" data-k="diameter" min="0" max="100" value="45"></div>
+        <div class="sub-row"><label>Intensité</label><input type="range" class="fx-sub" data-k="intensity" min="0" max="100" value="65"></div>
       </div>
     </div>
         </div>
@@ -1075,7 +1075,7 @@ const state = {
   eye:         { on:false, side:0, amount:70 },
   hemianopsia: { on:false, side:0, softness:20, opacity:90 },
   quadranopsia:{ on:false, quad:0, opacity:90 },
-  dmla:        { on:false, diameter:35, intensity:60 },
+  dmla:        { on:false, diameter:45, intensity:65 },
   cataract:    { on:false, amount:50 },
   glaucoma:    { on:false, diameter:55, opacity:85 },
   retinitis:   { on:false, diameter:30, dim:60 },
@@ -1615,6 +1615,68 @@ float dmlaBlob(vec2 p, vec2 c, float R){
   return k * k;
 }
 
+// ============================================================
+// [DMLA v9.9] MÉTAMORPHOPSIE ORGANIQUE appliquée aux coordonnées
+// CAMÉRA, en amont de toute la chaîne d'effets.
+//  • applyDmlaWarp(coord) : déforme la coordonnée d'échantillonnage
+//    vidéo. Champ vectoriel XY issu de DEUX bruits fbm décorrélés
+//    (centrés sur zéro) + très faible composante tangentielle.
+//    AUCUNE composante radiale : aucune direction privilégiée vers
+//    le centre → pas de pincement, pas d'aspiration, pas de rayons.
+//    Déplacement nul au centre exact, nul en périphérie (couronne
+//    resserrée), statique (aucune animation).
+//  • sampleVisualBase(coord) : point d'entrée COMMUN de tous les
+//    prélèvements vidéo → chaque effet (flou, brouillard, acuité,
+//    cataracte, surcharge, démence vasculaire…) voit la MÊME image
+//    déformée : le cumul avec la DMLA est préservé, aucune zone ne
+//    revient jamais à la vidéo brute. Le scotome (couleur, voile,
+//    baisse de contraste) est composé APRÈS, sur 'col', dans le
+//    bloc DMLA du main().
+//  • Sorties rapides : uDmlaOn <= 0.5, périphérie (rr >= zone) ou
+//    déplacement négligeable → coût quasi nul quand inutile.
+// ============================================================
+vec2 applyDmlaWarp(vec2 coord){
+  if(uDmlaOn <= 0.5) return coord;
+  float amt = uDmlaAmt;
+  vec2 q = (coord - vec2(0.5)) * uAspectFix;
+  float rr = length(q);
+  float severe   = smoothstep(0.75, 0.90, amt);
+  float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - severe);
+  // Diamètre DIRECT : petite valeur → petite zone, grande → grande.
+  float d     = uDmlaDiam * 0.4 + 0.02;
+  float ext   = d * (0.55 + 0.15 * severe);
+  float edgeR = ext * (1.05 + 0.10 * severe);
+  // [v9.9] Couronne RESSERRÉE : la déformation reste maculaire,
+  // la périphérie (affiches, portes, meubles) reste droite et stable.
+  float band  = ext * (0.38 + 0.08 * moderate + 0.10 * severe);
+  float zone  = edgeR + band * 1.7;
+  if(rr >= zone) return coord;                       // périphérie : sortie rapide
+  float ring  = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
+  float inner = smoothstep(0.0, edgeR * 0.45, rr);   // → 0 au centre exact
+  float outer = 1.0 - smoothstep(zone * 0.62, zone, rr); // décroissance rapide
+  float fall  = ring * inner * outer;
+  if(fall < 0.003) return coord;
+  // Champ ORGANIQUE : deux fbm décorrélés → vecteur XY centré sur 0.
+  float nx = dmlaFbm(q * 3.2 + vec2( 3.7,  8.1));
+  float ny = dmlaFbm(q * 3.2 + vec2(11.4,  2.6));
+  vec2 organic = vec2(nx - 0.47, ny - 0.47) * 2.4;
+  // Très faible ondulation tangentielle (< 20 % du champ organique).
+  vec2 tang  = vec2(-q.y, q.x) / max(rr, 1e-4);
+  float swirl = (dmlaFbm(q * 3.0 + 20.0) - 0.5) * 2.0;
+  vec2 warp = organic + tang * (0.18 * swirl);
+  float wamp = (0.006 + amt * 0.022) * fall;
+  vec2 wuv = coord + (warp / uAspectFix) * wamp;
+  // [v9.9] Sécurisation des UV déformés : pas de bordure noire,
+  // pas de répétition, pas de bande étirée (marge compatible fitUv).
+  return clamp(wuv, vec2(0.002), vec2(0.998));
+}
+
+// Échantillonnage vidéo COMMUN : applique le warp DMLA (si actif)
+// puis lit la caméra. N'applique JAMAIS le scotome coloré lui-même.
+vec3 sampleVisualBase(vec2 coord){
+  return sampleVideo(applyDmlaWarp(coord));
+}
+
 void main(){
   vec2 uv = vUv;
   vec2 center = vec2(0.5);
@@ -1662,12 +1724,12 @@ void main(){
     uv += nDir * off;
   }
 
-  vec3 col = sampleVideo(uv);
+  vec3 col = sampleVisualBase(uv);
 
   // --- Nystagmus : flou directionnel léger (traînée du mouvement) ---
   if(uNysOn > 0.5 && uNysBlur > 0.02){
     float mb = uNysBlur * 0.007 * uNysAmount;
-    vec3 acc = col + sampleVideo(uv + nDir*mb) + sampleVideo(uv - nDir*mb);
+    vec3 acc = col + sampleVisualBase(uv + nDir*mb) + sampleVisualBase(uv - nDir*mb);
     col = mix(col, acc/3.0, clamp(uNysBlur, 0.0, 1.0) * 0.6);
   }
 
@@ -1683,7 +1745,7 @@ void main(){
       for(int i=0;i<8;i++){
         float a = float(i) * 0.785398;
         vec2 o = vec2(cos(a), sin(a)) * r;
-        acc += sampleVideo(uv+o);
+        acc += sampleVisualBase(uv+o);
         n += 1.0;
       }
       col = mix(col, acc/n, mask);
@@ -1714,8 +1776,8 @@ void main(){
   // hiérarchie visuelle écrasée, micro-instabilité → brouillard cognitif.
   if(uOverloadOn > 0.5){
     float a = uOverloadAmt;
-    vec3 s1 = sampleVideo(uv + vec2(0.004, 0.0));
-    vec3 s2 = sampleVideo(uv + vec2(0.0, 0.004));
+    vec3 s1 = sampleVisualBase(uv + vec2(0.004, 0.0));
+    vec3 s2 = sampleVisualBase(uv + vec2(0.0, 0.004));
     vec3 hf = col - (s1 + s2) * 0.5;          // hautes fréquences = détails
     col += hf * a * 1.7;                        // détails inutiles plus présents
     float g = dot(col, vec3(0.299,0.587,0.114));
@@ -1727,13 +1789,13 @@ void main(){
   // --- Brouillard cognitif : double vision + perte de netteté ---
   if(uFogOn > 0.5){
     vec2 off = vec2(uFogGhost*0.022, uFogGhost*0.01);
-    vec3 ghost = sampleVideo(uv+off);
+    vec3 ghost = sampleVisualBase(uv+off);
     col = mix(col, (col+ghost)*0.5, 0.6);
     float r2 = uFogSharpness*0.01;
     vec3 soft = col;
-    soft += sampleVideo(uv+vec2(r2,0.0));
-    soft += sampleVideo(uv-vec2(r2,0.0));
-    soft += sampleVideo(uv+vec2(0.0,r2));
+    soft += sampleVisualBase(uv+vec2(r2,0.0));
+    soft += sampleVisualBase(uv-vec2(r2,0.0));
+    soft += sampleVisualBase(uv+vec2(0.0,r2));
     col = mix(col, soft*0.25, 0.55);
   }
 
@@ -1749,7 +1811,7 @@ void main(){
     for(int i=0;i<8;i++){
       float a = float(i) * 0.785398;
       vec2 o = vec2(cos(a), sin(a)) * r;
-      acc += sampleVideo(uv+o); n += 1.0;
+      acc += sampleVisualBase(uv+o); n += 1.0;
     }
     col = mix(col, acc/n, uAcuityAmt);
   }
@@ -1767,60 +1829,49 @@ void main(){
   }
 
   // --- DMLA : métamorphopsie + scotome central ORGANIQUE ---
-  // [DMLA v9.3] Correctif "rayons / triangles / zoom blur" :
-  //  PROBLÈME : le contour v9.x était piloté par un bruit ANGULAIRE
-  //  (dmlaNoise(aDir*2.2) : constant le long de chaque rayon → lobes
-  //  triangulaires rayonnant depuis le centre) et la métamorphopsie
-  //  déplaçait l'image le long de dir = normalize(uv-center) →
-  //  étirement radial type zoom blur, très visible en sévère.
-  //  CORRECTIF :
-  //  • forme = champ de MÉTABALLES 2D (1 masse centrale + 4 satellites
-  //    fusionnés, asymétriques) + bruit 2D positionnel : contour
-  //    patatoïde doux, aucun motif radial géométriquement possible ;
-  //  • métamorphopsie NON DIRECTIONNELLE : champ de bruit 2D +
-  //    ondulation Amsler, aucune composante convergeant vers le centre ;
-  //  • flou = disque isotrope 8 taps, il ADOUCIT le masque sans
-  //    agrandir ni étirer l'image caméra ;
-  //  • grain interne très lent (anti-aplat), lacunes translucides
-  //    statiques laissant filtrer de faibles fragments d'image ;
-  //  • sévère : scotome étendu, cœur ~80–95 % d'opacité variable,
-  //    gris-brun non uniforme, contour irrégulier et diffus.
-  //  La périphérie reste toujours intacte (aucune déformation radiale).
-  //  Coût : value noise + 4 métaballes (pas de texture, pas d'allocation,
-  //  compatible mode casque).
-  // [DMLA v9.4] Fin de l'effet "eau / heat-wave" : la métamorphopsie
-  //  n'utilise plus de sinusoïdes animées (sin/slow supprimés) mais un
-  //  gradient de bruit 2D STATIQUE multi-échelle, confiné à une zone
-  //  maculaire resserrée (rétrécie encore en sévère). Déformation locale
-  //  et organique ; périphérie stable et exploitable aux 3 stades.
+  // [DMLA v9.9] Architecture refondue :
+  //  • La MÉTAMORPHOPSIE n'est plus appliquée ici : elle vit dans
+  //    applyDmlaWarp() / sampleVisualBase(), en amont de TOUTE la
+  //    chaîne d'effets. Plus aucun 'col = sampleVideo(wuv)' : la zone
+  //    déformée ne redevient jamais une portion de caméra brute, le
+  //    cumul (cataracte, photophobie, acuité, contraste, brouillard,
+  //    teinte, démences…) est préservé.
+  //  • Champ de déformation ORGANIQUE (deux fbm décorrélés, centrés
+  //    sur zéro) : l'ancienne composante radiale dominante
+  //    (dir * 0.85 → pincement / aspiration / zoom blur) est SUPPRIMÉE.
+  //    Seule subsiste une très faible ondulation tangentielle (<20 %).
+  //  • Couronne de déformation RESSERRÉE : léger = petite zone
+  //    centrale ; modéré = macula proche ; sévère = zone centrale
+  //    étendue, mais la périphérie reste droite et stable (pas
+  //    d'ondulation globale type "vu à travers de l'eau").
+  //  • Scotome : métaballes 2D + fbm POSITIONNEL conservés (contour
+  //    patatoïde, aucun motif radial possible), texture interne quasi
+  //    statique. NOUVEAU facteur scotomaStage : au stade léger, la
+  //    tache est quasi imperceptible (voile ≤ ~8 %) — la gêne vient de
+  //    la métamorphopsie, du flou et de la baisse de contraste. Le
+  //    scotome visible commence réellement au stade modéré.
+  //  • Curseur "Diamètre" remis dans le BON SENS (petite valeur =
+  //    petite zone), inversion JavaScript supprimée.
+  //  Ce bloc ne fait plus que COMPOSER sur 'col' : flou/perte de
+  //  contraste central, gêne légère, puis scotome coloré.
   if(uDmlaOn > 0.5){
     float amt  = uDmlaAmt;
-    float d    = uDmlaDiam * 0.4 + 0.02;   // rayon de base du scotome
+    float d    = uDmlaDiam * 0.4 + 0.02;    // rayon de base (croît AVEC le curseur)
     vec2 q = (uv - center) * uAspectFix;     // aspect corrigé → zone circulaire
     float rr = length(q);
     float slow = uTime * 0.0004;             // dérive très lente (quasi statique)
 
-    // [DMLA v9.2] Poids continus des 3 stades (pas de rupture entre presets) :
-    //   mild     ≈ 1 vers amt 0.40 (léger)   → gêne centrale subtile, pas de tache ;
-    //   moderate ≈ 1 vers amt 0.65 (modéré)  → effet recentré sur la macula ;
+    // Poids continus des 3 stades (interpolation sans rupture entre presets) :
+    //   mild     ≈ 1 vers amt 0.38 (léger)   → gêne centrale subtile, pas de tache ;
+    //   moderate ≈ 1 vers amt 0.65 (modéré)  → scotome translucide, effet maculaire ;
     //   severe   ≈ 1 vers amt 0.90 (sévère)  → scotome organique dense et étendu.
-    float mild     = 1.0 - smoothstep(0.45, 0.60, amt);
-    float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - smoothstep(0.75, 0.90, amt));
     float severe   = smoothstep(0.75, 0.90, amt);
+    float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - severe);
+    float mild     = 1.0 - smoothstep(0.45, 0.60, amt);
 
-    // ============================================================
-    // [DMLA v9.3] FORME DU SCOTOME : champ de métaballes 2D + bruit
-    // POSITIONNEL. Plus AUCUNE paramétrisation angulaire (atan/cos/sin
-    // de l'angle) → il est géométriquement impossible de produire des
-    // rayons, traînées ou triangles convergeant vers le centre.
-    // Le scotome = union de plusieurs masses arrondies FUSIONNÉES
-    // (1 masse centrale + 4 satellites asymétriques), modulée par un
-    // bruit 2D → contour patatoïde, irrégulier, doux et progressif.
-    // ============================================================
-    // [DMLA v9.3b] Étendue BORNÉE : le rayon max du scotome vaut ~d
-    // (comme en v9.2), légèrement plus en sévère — la périphérie reste
-    // toujours dégagée, quel que soit l'écran (blobs à support compact).
-    float ext = d * (0.55 + 0.15 * severe);   // [v9.3c] scotome sévère recentré (~40-50% de l'image)
+    // Étendue BORNÉE (identique aux formules d'applyDmlaWarp → masques
+    // et champ de déplacement parfaitement alignés, calcul mutualisé).
+    float ext = d * (0.55 + 0.15 * severe);
     vec2 p = q / max(ext, 1e-4);                 // coordonnées normalisées
 
     // Union de masses arrondies FUSIONNÉES (1 centrale + 4 satellites
@@ -1837,58 +1888,29 @@ void main(){
     f *= 0.86 + 0.28 * dmlaFbm(q * 16.0 + 4.7);
     f += (dmlaFbm(q * 34.0 + 13.0) - 0.5) * 0.20 * smoothstep(0.0, 0.15, f);
 
-    // shape : enveloppe à bord TRÈS progressif (plage large → dégradé
-    // doux, plus de marche d'escalier "pixelisée") ; core : cœur dense.
+    // shape : enveloppe à bord TRÈS progressif ; core : cœur dense.
     float shape = smoothstep(0.10, 1.00, f);
     float core  = smoothstep(0.50, 1.75, f);
 
-    // --- Métamorphopsie + baisse d'acuité (anneau PARACENTRAL) ---
-    // [DMLA v9.7] Déformation type GRILLE D'AMSLER : les lignes sont
-    // doucement CONTRACTÉES vers le centre (pincement/pincushion) dans une
-    // COURONNE autour du scotome, et parfaitement droites ailleurs. C'est
-    // un warp radial LISSE, LOCAL et de faible amplitude — à ne pas
-    // confondre avec l'ancien "zoom blur / rayons" (étirement de toute
-    // l'image) qui, lui, reste banni. Le profil en anneau gaussien garantit
-    // un déplacement NUL au centre exact et NUL en périphérie.
-    float edgeR = ext * (1.05 + 0.10 * severe);          // rayon du bord du scotome
-    float band  = ext * (0.55 + 0.15 * moderate + 0.15 * severe);
-    float ring  = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
-    float zone  = edgeR + band * 2.4;                    // portée de l'anneau
+    // Couronne maculaire (mêmes formules que applyDmlaWarp).
+    float edgeR = ext * (1.05 + 0.10 * severe);
+    float band  = ext * (0.38 + 0.08 * moderate + 0.10 * severe);
+    float zone  = edgeR + band * 1.7;
+
     if(rr < zone){
-      float inner = smoothstep(0.0, edgeR * 0.55, rr);       // → 0 au centre exact
-      float outer = 1.0 - smoothstep(zone * 0.7, zone, rr);  // → 0 en périphérie
-      float fall  = ring * inner * outer;
-
-      // 1) [DMLA v9.7] Warp d'Amsler : direction RADIALE (vers le centre)
-      // pour contracter les lignes, plus une légère composante tangentielle
-      // et une irrégularité basse fréquence (fbm) → pincement organique et
-      // asymétrique, jamais un cône parfait. Statique, aucune animation.
-      vec2 dir  = (rr > 1e-4) ? q / rr : vec2(0.0);          // radial unitaire
-      vec2 tang = vec2(-dir.y, dir.x);                       // tangentiel
-      float irr  = 0.75 + 0.5 * dmlaFbm(q * 3.0 + 7.0);      // asymétrie douce
-      float swirl = (dmlaFbm(q * 3.0 + 20.0) - 0.5) * 2.0;   // ondulation latérale
-      // +dir = contraction vers le centre (pincushion, comme l'Amsler)
-      vec2 warp = (dir * 0.85 + tang * 0.30 * swirl) * irr;
-      float wamp = (0.006 + amt * 0.018) * fall;
-      vec2 wuv = uv + (warp / uAspectFix) * wamp;   // décalage déjà pondéré par fall
-      // [DMLA v9.8] REMPLACEMENT (et non mix) : on n'affiche QUE l'image
-      // ré-échantillonnée aux coordonnées déformées. Le décalage tendant
-      // vers 0 aux bords (fall→0), la transition reste douce SANS
-      // superposer une version non déformée → fini l'image "fantôme".
-      col = sampleVideo(wuv);
-
-      // 2) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
-      // (8 taps à rayon constant), masqué par la FORME du scotome.
-      // Sert uniquement à adoucir la lisibilité sous/autour du masque,
-      // sans zoom ni étirement de l'image caméra.
+      // 1) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
+      // (8 taps à rayon constant, via sampleVisualBase → même warp que
+      // l'image de base), masqué par la FORME du scotome. 'col' garde un
+      // poids fort dans l'accumulation → les effets déjà appliqués
+      // (teinte, photophobie, contraste…) restent visibles au centre.
       float mask = smoothstep(0.10, 0.75, f);
       if(mask > 0.001){
         float r = amt * 0.02;
-        vec3 acc = sampleVideo(wuv); float n = 1.0;
+        vec3 acc = col * 3.0; float n = 3.0;
         for(int i=0;i<8;i++){
           float a = float(i) * 0.785398;
           vec2 o = vec2(cos(a), sin(a)) * r;
-          acc += sampleVideo(wuv + o); n += 1.0;
+          acc += sampleVisualBase(uv + o); n += 1.0;
         }
         vec3 blurred = acc / n;
         float g = dot(blurred, vec3(0.3,0.59,0.11));
@@ -1896,7 +1918,7 @@ void main(){
         col = mix(col, lowC, mask * min(amt + moderate * 0.12, 1.0));
       }
 
-      // 2bis) LÉGER : gêne centrale très subtile — perte de contraste
+      // 2) LÉGER : gêne centrale très subtile — perte de contraste
       // et légère désaturation au point de fixation. Pas de tache.
       if(mild > 0.001){
         float cMask = 1.0 - smoothstep(d * 0.15, d * 0.70, rr);
@@ -1907,16 +1929,23 @@ void main(){
       }
     }
 
-    // --- 3) [DMLA v9.3] SCOTOME ORGANIQUE : tache sombre marbrée ---
+    // --- 3) SCOTOME ORGANIQUE : tache sombre marbrée ---
     if(shape > 0.001){
       // Marbrures internes (2 échelles de bruit statiques) + grain
       // TRÈS lent (dérive quasi imperceptible, aucune pulsation).
       float tex   = dmlaFbm(q * 18.0 + 11.0);   // fbm → marbrures douces, pas de carrés
       float grain = dmlaFbm(q * 40.0 + vec2(slow * 20.0, -slow * 15.0));
 
-      // Opacité : léger = voile translucide ; SÉVÈRE ≈ 0.80–0.95 dans
+      // [v9.9] Progression SPÉCIFIQUE du scotome : quasi nul en léger
+      // (≤ ~8 % → simple voile), il ne devient réellement visible qu'à
+      // partir du stade modéré, dense (~80-95 %) en sévère.
+      float scotomaStage = mix(0.08, 1.0, smoothstep(0.45, 0.72, amt));
+
+      // Opacité : léger = voile à peine perceptible ; modéré = tache
+      // grisâtre partielle et translucide ; SÉVÈRE ≈ 0.80–0.95 dans
       // le cœur (presque opaque mais jamais aplat uniforme).
       float dens = shape * smoothstep(0.12, 0.95, amt) * (0.55 + 0.45 * core);
+      dens *= scotomaStage;
       dens *= mix(0.86 + 0.14 * tex,            // léger/modéré : marbrures discrètes
                   mix(0.80, 0.96, tex),          // sévère : opacité variable 80–96 %
                   severe);
@@ -1928,6 +1957,8 @@ void main(){
       dens *= 0.97 + 0.06 * grain;
 
       // Couleur : gris voilé (léger) → brun-gris sombre non uniforme (sévère).
+      // Composé sur 'col' (image déjà traitée par la chaîne d'effets) :
+      // aucune coupure de couleur ou de contraste au bord du scotome.
       vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.13, 0.11, 0.095),
                       smoothstep(0.30, 0.90, amt));
       veil *= 0.91 + 0.18 * tex;
@@ -1949,7 +1980,7 @@ void main(){
     for(int i=0;i<8;i++){
       float a = float(i) * 0.785398;
       vec2 o = vec2(cos(a), sin(a)) * r;
-      acc += sampleVideo(uv+o); n += 1.0;
+      acc += sampleVisualBase(uv+o); n += 1.0;
     }
     vec3 blurred = acc/n;
     col = mix(col, blurred, uCataractAmt * 0.8);
@@ -2013,15 +2044,15 @@ void main(){
 
     // 3) Reconstruit la couleur depuis l'uv distordu, puis flou local (traitement lent)
     //    sur le côté atteint et les zones de décrochage.
-    vec3 vcol = sampleVideo(vuv);
+    vec3 vcol = sampleVisualBase(vuv);
     float softAmt = clamp(neglectField*0.62 + drop, 0.0, 1.0);
     if(softAmt > 0.01){
       float r = (0.005 + uVascDelay*0.011) * softAmt;
       vec3 acc = vcol;
-      acc += sampleVideo(vuv + vec2(r,0.0));
-      acc += sampleVideo(vuv - vec2(r,0.0));
-      acc += sampleVideo(vuv + vec2(0.0,r));
-      acc += sampleVideo(vuv - vec2(0.0,r));
+      acc += sampleVisualBase(vuv + vec2(r,0.0));
+      acc += sampleVisualBase(vuv - vec2(r,0.0));
+      acc += sampleVisualBase(vuv + vec2(0.0,r));
+      acc += sampleVisualBase(vuv - vec2(0.0,r));
       vcol = mix(vcol, acc/5.0, softAmt);
     }
     col = vcol;
@@ -3220,7 +3251,9 @@ function startRenderLoop(useFallback){
     gl.uniform1f(U.uPhotoAmt, state.photo.amount/100);
 
     gl.uniform1f(U.uDmlaOn, (visuelEnabled&&state.dmla.on)?1:0);
-    gl.uniform1f(U.uDmlaDiam, 1-state.dmla.diameter/100);
+    // [DMLA v9.9] Inversion supprimée : le curseur "Diamètre" est DIRECT
+    // (petite valeur = petite zone, grande valeur = grande zone).
+    gl.uniform1f(U.uDmlaDiam, state.dmla.diameter/100);
     gl.uniform1f(U.uDmlaAmt, state.dmla.intensity/100);
     gl.uniform1f(U.uCataractOn, (visuelEnabled&&state.cataract.on)?1:0);
     gl.uniform1f(U.uCataractAmt, state.cataract.amount/100);
@@ -3364,17 +3397,17 @@ applyStagePreset(15);
      Placeholders raisonnables — À VALIDER par les partenaires médicaux. */
   const TV_STAGE = {
     15:{ acuity:{amount:25}, cataract:{amount:25}, photo:{amount:30},
-         dmla:{diameter:55,intensity:40}, glaucoma:{diameter:40,opacity:70},
+         dmla:{diameter:28,intensity:38}, glaucoma:{diameter:40,opacity:70},
          retinitis:{diameter:22,dim:40}, retinopathy:{count:25,size:30,intensity:45},
          eye:{amount:45}, hemianopsia:{opacity:70}, quadranopsia:{opacity:70},
          nystagmus:{amplitude:15,frequency:25,saccades:15,motionBlur:10,amount:30} },
     50:{ acuity:{amount:50}, cataract:{amount:50}, photo:{amount:55},
-         dmla:{diameter:40,intensity:65}, glaucoma:{diameter:55,opacity:85},
+         dmla:{diameter:45,intensity:65}, glaucoma:{diameter:55,opacity:85},
          retinitis:{diameter:32,dim:60}, retinopathy:{count:45,size:45,intensity:65},
          eye:{amount:70}, hemianopsia:{opacity:85}, quadranopsia:{opacity:85},
          nystagmus:{amplitude:35,frequency:45,saccades:40,motionBlur:25,amount:55} },
     85:{ acuity:{amount:80}, cataract:{amount:82}, photo:{amount:85},
-         dmla:{diameter:22,intensity:90}, glaucoma:{diameter:70,opacity:95},
+         dmla:{diameter:65,intensity:90}, glaucoma:{diameter:70,opacity:95},
          retinitis:{diameter:50,dim:85}, retinopathy:{count:88,size:75,intensity:92},
          eye:{amount:95}, hemianopsia:{opacity:95}, quadranopsia:{opacity:92},
          /* Nystagmus sévère : volontairement plafonné pour rester supportable sur téléphone
