@@ -450,7 +450,7 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <span class="mc-go">›</span>
       </button>
     </div>
-    <div class="home-foot">v9.9 · DMLA refondue : warp organique (sans rayons), périphérie stable, diamètre corrigé, cumul des effets préservé</div>
+    <div class="home-foot">v9.10 · DMLA : métamorphopsie périscotomale type Amsler — déformation liée au contour organique du scotome, couronne annulaire supprimée, périphérie stable</div>
   </section>
 
   <!-- ===== ÉCRAN DÉMO — Pupitre simplifié (cumul démence + trouble visuel) ===== -->
@@ -1614,60 +1614,126 @@ float dmlaBlob(vec2 p, vec2 c, float R){
   float k = max(1.0 - x * x, 0.0);
   return k * k;
 }
+// [DMLA v9.10] fbm allégé (2 octaves) : utilisé là où le champ est évalué
+// plusieurs fois par pixel (gradient du contour, bruit du warp) → coût maîtrisé.
+float dmlaFbm2(vec2 p){
+  return 0.5 * dmlaNoise(p) + 0.25 * dmlaNoise(p * 2.03 + 17.3);
+}
+// [DMLA v9.10] FORME DU SCOTOME partagée : union de métaballes asymétriques
+// (1 centrale + 4 satellites, support compact ≈ 1.3 * ext). C'est LA source
+// unique de vérité pour : le scotome affiché ET la métamorphopsie
+// périscotomale (warp) → la déformation suit exactement le contour organique.
+float dmlaBlobs(vec2 p){
+  return 1.00 * dmlaBlob(p, vec2( 0.00,  0.00), 1.00)
+       + 0.75 * dmlaBlob(p, vec2( 0.42,  0.24), 0.75)
+       + 0.65 * dmlaBlob(p, vec2(-0.40,  0.34), 0.70)
+       + 0.80 * dmlaBlob(p, vec2(-0.22, -0.44), 0.78)
+       + 0.60 * dmlaBlob(p, vec2( 0.30, -0.38), 0.68);
+}
+// Version ALLÉGÉE (métaballes + modulation fbm 2 octaves) : sert au calcul
+// du GRADIENT du contour (2 évaluations décalées) dans applyDmlaWarp.
+float dmlaShapeLite(vec2 q, float ext){
+  float f = dmlaBlobs(q / max(ext, 1e-4));
+  f *= 0.86 + 0.28 * dmlaFbm2(q * 16.0 + 4.7);
+  return f;
+}
+// Version COMPLÈTE (identique à la forme utilisée pour dessiner le scotome
+// dans main()) : contour irrégulier multi-échelles, jamais de motif radial.
+float dmlaShapeField(vec2 q, float ext){
+  float f = dmlaBlobs(q / max(ext, 1e-4));
+  f *= 0.86 + 0.28 * dmlaFbm(q * 16.0 + 4.7);
+  f += (dmlaFbm(q * 34.0 + 13.0) - 0.5) * 0.20 * smoothstep(0.0, 0.15, f);
+  return f;
+}
 
 // ============================================================
-// [DMLA v9.9] MÉTAMORPHOPSIE ORGANIQUE appliquée aux coordonnées
-// CAMÉRA, en amont de toute la chaîne d'effets.
-//  • applyDmlaWarp(coord) : déforme la coordonnée d'échantillonnage
-//    vidéo. Champ vectoriel XY issu de DEUX bruits fbm décorrélés
-//    (centrés sur zéro) + très faible composante tangentielle.
-//    AUCUNE composante radiale : aucune direction privilégiée vers
-//    le centre → pas de pincement, pas d'aspiration, pas de rayons.
-//    Déplacement nul au centre exact, nul en périphérie (couronne
-//    resserrée), statique (aucune animation).
+// [DMLA v9.10] MÉTAMORPHOPSIE PÉRISCOTOMALE type "grille d'Amsler
+// pathologique", appliquée aux coordonnées CAMÉRA, en amont de
+// toute la chaîne d'effets.
+//  • FINI la couronne annulaire : l'ancien masque ring/exp (anneau
+//    quasi circulaire indépendant du scotome) est SUPPRIMÉ. La zone
+//    de déformation est désormais dérivée du MÊME champ organique
+//    que la forme du scotome (dmlaShapeField) : elle naît au bord de
+//    la tache, en épouse le contour asymétrique, et décroît vite en
+//    s'éloignant. Transition intrinsèquement irrégulière → aucun
+//    halo lisse, aucun anneau visible, aucun effet "heat wave".
+//  • Champ vectoriel LOCAL construit à partir :
+//      1. du GRADIENT du champ de forme (2 évaluations décalées de
+//         dmlaShapeLite) → direction perpendiculaire au contour réel ;
+//      2. d'une composante d'ATTRACTION/COMPRESSION douce : les
+//         lignes droites voisines (feuilles, cadres, portes)
+//         paraissent tirées / incurvées vers le scotome, comme les
+//         carreaux d'une grille d'Amsler autour d'une lésion
+//         maculaire — amplitude modulée par bruit (asymétrie) ;
+//      3. d'une composante TANGENTIELLE discrète à signe variable
+//         (torsion locale le long du contour) ;
+//      4. d'un bruit 2D décorrélé (irrégularité, aucun motif).
+//    Aucune aspiration radiale forte, aucun zoom blur, aucune
+//    convergence en rayons, aucune symétrie parfaite : la direction
+//    de référence est le contour ORGANIQUE, pas le centre écran.
+//  • La bande de déformation s'annule loin du scotome (support
+//    compact → périphérie rigoureusement stable) ET dans le cœur
+//    profond (recouvert par la tache) ; elle est maximale au
+//    voisinage immédiat du bord — là où la métamorphopsie clinique
+//    est la plus perturbante. Statique (aucune animation).
 //  • sampleVisualBase(coord) : point d'entrée COMMUN de tous les
 //    prélèvements vidéo → chaque effet (flou, brouillard, acuité,
 //    cataracte, surcharge, démence vasculaire…) voit la MÊME image
-//    déformée : le cumul avec la DMLA est préservé, aucune zone ne
-//    revient jamais à la vidéo brute. Le scotome (couleur, voile,
-//    baisse de contraste) est composé APRÈS, sur 'col', dans le
-//    bloc DMLA du main().
-//  • Sorties rapides : uDmlaOn <= 0.5, périphérie (rr >= zone) ou
-//    déplacement négligeable → coût quasi nul quand inutile.
+//    déformée : le cumul avec la DMLA est préservé. Le scotome
+//    (voile, couleur) est composé APRÈS, sur 'col', dans main().
+//  • Sorties rapides : uDmlaOn <= 0.5, hors support (rr >= 1.45*ext)
+//    ou bande négligeable → coût quasi nul quand inutile.
 // ============================================================
 vec2 applyDmlaWarp(vec2 coord){
   if(uDmlaOn <= 0.5) return coord;
   float amt = uDmlaAmt;
   vec2 q = (coord - vec2(0.5)) * uAspectFix;
   float rr = length(q);
-  float severe   = smoothstep(0.75, 0.90, amt);
-  float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - severe);
+  float severe = smoothstep(0.75, 0.90, amt);
   // Diamètre DIRECT : petite valeur → petite zone, grande → grande.
-  float d     = uDmlaDiam * 0.4 + 0.02;
-  float ext   = d * (0.55 + 0.15 * severe);
-  float edgeR = ext * (1.05 + 0.10 * severe);
-  // [v9.9] Couronne RESSERRÉE : la déformation reste maculaire,
-  // la périphérie (affiches, portes, meubles) reste droite et stable.
-  float band  = ext * (0.38 + 0.08 * moderate + 0.10 * severe);
-  float zone  = edgeR + band * 1.7;
-  if(rr >= zone) return coord;                       // périphérie : sortie rapide
-  float ring  = exp(-pow((rr - edgeR) / max(band, 1e-4), 2.0));
-  float inner = smoothstep(0.0, edgeR * 0.45, rr);   // → 0 au centre exact
-  float outer = 1.0 - smoothstep(zone * 0.62, zone, rr); // décroissance rapide
-  float fall  = ring * inner * outer;
-  if(fall < 0.003) return coord;
-  // Champ ORGANIQUE : deux fbm décorrélés → vecteur XY centré sur 0.
-  float nx = dmlaFbm(q * 3.2 + vec2( 3.7,  8.1));
-  float ny = dmlaFbm(q * 3.2 + vec2(11.4,  2.6));
-  vec2 organic = vec2(nx - 0.47, ny - 0.47) * 2.4;
-  // Très faible ondulation tangentielle (< 20 % du champ organique).
-  vec2 tang  = vec2(-q.y, q.x) / max(rr, 1e-4);
-  float swirl = (dmlaFbm(q * 3.0 + 20.0) - 0.5) * 2.0;
-  vec2 warp = organic + tang * (0.18 * swirl);
-  float wamp = (0.006 + amt * 0.022) * fall;
+  float d   = uDmlaDiam * 0.4 + 0.02;
+  float ext = d * (0.55 + 0.15 * severe);
+  // Périphérie : au-delà du support compact de la forme → AUCUNE
+  // déformation, sortie immédiate (meubles, portes, affiches stables).
+  if(rr >= ext * 1.45) return coord;
+
+  // Champ de forme du scotome (le même que la tache affichée).
+  float f0 = dmlaShapeField(q, ext);
+
+  // Bande PÉRISCOTOMALE : suit le contour irrégulier de f0.
+  //  ~0 loin de la tache, maximale au voisinage du bord (f0 ≈ 0.3–0.8),
+  //  s'éteint dans le cœur profond (masqué par le scotome lui-même).
+  float band = smoothstep(0.015, 0.30, f0) * (1.0 - smoothstep(0.80, 1.50, f0));
+  if(band < 0.004) return coord;
+
+  // GRADIENT du contour (différences finies sur la forme allégée) :
+  // pointe vers l'intérieur du scotome, suit ses lobes asymétriques.
+  float eps = max(ext * 0.05, 1e-4);
+  float fc = dmlaShapeLite(q, ext);
+  float fx = dmlaShapeLite(q + vec2(eps, 0.0), ext);
+  float fy = dmlaShapeLite(q + vec2(0.0, eps), ext);
+  vec2 grad = vec2(fx - fc, fy - fc) / eps;
+  vec2 gdir = grad / max(length(grad), 1e-3);
+  vec2 tdir = vec2(-gdir.y, gdir.x);
+
+  // Composantes du champ vectoriel périscotomal :
+  float pullN = 0.55 + 0.45 * dmlaFbm2(q * 5.5 + 31.0);        // attraction modulée (asymétrie)
+  float sw    = (dmlaFbm2(q * 3.1 + 20.0) - 0.5) * 2.0;        // torsion à signe variable
+  vec2 organic = vec2(dmlaFbm2(q * 4.1 + vec2( 3.7,  8.1)) - 0.375,
+                      dmlaFbm2(q * 4.1 + vec2(11.4,  2.6)) - 0.375) * 2.2;
+  // -gdir : on échantillonne côté OPPOSÉ au scotome → le contenu voisin
+  // paraît tiré/compressé vers la lésion (lignes incurvées vers la tache).
+  vec2 warp = -gdir * (0.90 * pullN)
+            +  tdir * (0.50 * sw)
+            +  organic * 0.55;
+
+  // Amplitude portée par la bande de contour, croissante avec la sévérité :
+  // léger = inflexion discrète, modéré = lignes franchement déviées,
+  // sévère = abords fortement métamorphopsiques.
+  float wamp = (0.005 + amt * 0.026 + severe * 0.012) * band;
   vec2 wuv = coord + (warp / uAspectFix) * wamp;
-  // [v9.9] Sécurisation des UV déformés : pas de bordure noire,
-  // pas de répétition, pas de bande étirée (marge compatible fitUv).
+  // Sécurisation des UV déformés : pas de bordure noire, pas de
+  // répétition, pas de bande étirée (marge compatible fitUv).
   return clamp(wuv, vec2(0.002), vec2(0.998));
 }
 
@@ -1829,7 +1895,13 @@ void main(){
   }
 
   // --- DMLA : métamorphopsie + scotome central ORGANIQUE ---
-  // [DMLA v9.9] Architecture refondue :
+  // [DMLA v9.10] Abords du scotome = MÉTAMORPHOPSIE PÉRISCOTOMALE type
+  // grille d'Amsler pathologique : la déformation est dérivée du MÊME
+  // champ de forme que le scotome (dmlaShapeField), naît à son bord,
+  // suit son contour asymétrique et décroît vite (voir applyDmlaWarp).
+  // L'ancienne couronne annulaire (ring/exp) est supprimée. Le flou et
+  // la baisse de contraste deviennent secondaires face à la déformation.
+  // [DMLA v9.9] Architecture (conservée) :
   //  • La MÉTAMORPHOPSIE n'est plus appliquée ici : elle vit dans
   //    applyDmlaWarp() / sampleVisualBase(), en amont de TOUTE la
   //    chaîne d'effets. Plus aucun 'col = sampleVideo(wuv)' : la zone
@@ -1869,33 +1941,19 @@ void main(){
     float moderate = smoothstep(0.45, 0.70, amt) * (1.0 - severe);
     float mild     = 1.0 - smoothstep(0.45, 0.60, amt);
 
-    // Étendue BORNÉE (identique aux formules d'applyDmlaWarp → masques
-    // et champ de déplacement parfaitement alignés, calcul mutualisé).
+    // Étendue BORNÉE. [v9.10] La forme est désormais calculée par
+    // dmlaShapeField : EXACTEMENT le même champ organique que celui qui
+    // pilote la métamorphopsie périscotomale dans applyDmlaWarp →
+    // scotome et déformation des abords parfaitement cohérents.
     float ext = d * (0.55 + 0.15 * severe);
-    vec2 p = q / max(ext, 1e-4);                 // coordonnées normalisées
-
-    // Union de masses arrondies FUSIONNÉES (1 centrale + 4 satellites
-    // asymétriques). Portée max ≈ 1.2 * ext, garantie par le support compact.
-    float f = 1.00 * dmlaBlob(p, vec2( 0.00,  0.00), 1.00)
-            + 0.75 * dmlaBlob(p, vec2( 0.42,  0.24), 0.75)
-            + 0.65 * dmlaBlob(p, vec2(-0.40,  0.34), 0.70)
-            + 0.80 * dmlaBlob(p, vec2(-0.22, -0.44), 0.78)
-            + 0.60 * dmlaBlob(p, vec2( 0.30, -0.38), 0.68);
-
-    // Irrégularité du contour : fbm 2D POSITIONNEL (multi-octaves →
-    // pas de grosses cellules carrées) ; jamais de motif radial. Le bruit
-    // additif est fenêtré par f → ne peut créer de taches hors du support.
-    f *= 0.86 + 0.28 * dmlaFbm(q * 16.0 + 4.7);
-    f += (dmlaFbm(q * 34.0 + 13.0) - 0.5) * 0.20 * smoothstep(0.0, 0.15, f);
+    float f = dmlaShapeField(q, ext);
 
     // shape : enveloppe à bord TRÈS progressif ; core : cœur dense.
     float shape = smoothstep(0.10, 1.00, f);
     float core  = smoothstep(0.50, 1.75, f);
 
-    // Couronne maculaire (mêmes formules que applyDmlaWarp).
-    float edgeR = ext * (1.05 + 0.10 * severe);
-    float band  = ext * (0.38 + 0.08 * moderate + 0.10 * severe);
-    float zone  = edgeR + band * 1.7;
+    // Zone maculaire utile (même support compact que applyDmlaWarp).
+    float zone = ext * 1.45;
 
     if(rr < zone){
       // 1) Flou + perte d'acuité/contraste : flou en DISQUE isotrope
@@ -1903,9 +1961,13 @@ void main(){
       // l'image de base), masqué par la FORME du scotome. 'col' garde un
       // poids fort dans l'accumulation → les effets déjà appliqués
       // (teinte, photophobie, contraste…) restent visibles au centre.
+      // [v9.10] Flou et baisse de contraste rendus SECONDAIRES : rayon
+      // réduit, désaturation allégée, poids plafonné → plus de "plaque
+      // grise molle" autour de la tache ; la gêne principale vient de la
+      // MÉTAMORPHOPSIE (warp) qui déforme les lignes autour du scotome.
       float mask = smoothstep(0.10, 0.75, f);
       if(mask > 0.001){
-        float r = amt * 0.02;
+        float r = amt * 0.012;
         vec3 acc = col * 3.0; float n = 3.0;
         for(int i=0;i<8;i++){
           float a = float(i) * 0.785398;
@@ -1914,8 +1976,8 @@ void main(){
         }
         vec3 blurred = acc / n;
         float g = dot(blurred, vec3(0.3,0.59,0.11));
-        vec3 lowC = mix(blurred, vec3(g), 0.35 + amt*0.4) * (0.88 - amt*0.12);
-        col = mix(col, lowC, mask * min(amt + moderate * 0.12, 1.0));
+        vec3 lowC = mix(blurred, vec3(g), 0.20 + amt*0.28) * (0.94 - amt*0.08);
+        col = mix(col, lowC, mask * (0.30 + amt * 0.42 + moderate * 0.08));
       }
 
       // 2) LÉGER : gêne centrale très subtile — perte de contraste
