@@ -450,7 +450,7 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <span class="mc-go">›</span>
       </button>
     </div>
-    <div class="home-foot">v9.10 · DMLA : métamorphopsie périscotomale type Amsler — déformation liée au contour organique du scotome, couronne annulaire supprimée, périphérie stable</div>
+    <div class="home-foot">v9.11 · DMLA : sévère organique (bord gris fondu, tons sombres au cœur, spots confinés), abords sans liseré ni contour dessiné, léger/modéré conservés</div>
   </section>
 
   <!-- ===== ÉCRAN DÉMO — Pupitre simplifié (cumul démence + trouble visuel) ===== -->
@@ -1701,9 +1701,11 @@ vec2 applyDmlaWarp(vec2 coord){
   float f0 = dmlaShapeField(q, ext);
 
   // Bande PÉRISCOTOMALE : suit le contour irrégulier de f0.
-  //  ~0 loin de la tache, maximale au voisinage du bord (f0 ≈ 0.3–0.8),
-  //  s'éteint dans le cœur profond (masqué par le scotome lui-même).
-  float band = smoothstep(0.015, 0.30, f0) * (1.0 - smoothstep(0.80, 1.50, f0));
+  //  ~0 loin de la tache, maximale au voisinage du bord, et [v9.11]
+  //  s'éteint AVANT le voile dense (core ≈ f>0.5) : plus aucune
+  //  déformation forte sous le bord sombre → fin des liserés étirés
+  //  et des traînées qui "contournent" la zone centrale.
+  float band = smoothstep(0.012, 0.32, f0) * (1.0 - smoothstep(0.55, 1.30, f0));
   if(band < 0.004) return coord;
 
   // GRADIENT du contour (différences finies sur la forme allégée) :
@@ -1721,16 +1723,19 @@ vec2 applyDmlaWarp(vec2 coord){
   float sw    = (dmlaFbm2(q * 3.1 + 20.0) - 0.5) * 2.0;        // torsion à signe variable
   vec2 organic = vec2(dmlaFbm2(q * 4.1 + vec2( 3.7,  8.1)) - 0.375,
                       dmlaFbm2(q * 4.1 + vec2(11.4,  2.6)) - 0.375) * 2.2;
-  // -gdir : on échantillonne côté OPPOSÉ au scotome → le contenu voisin
-  // paraît tiré/compressé vers la lésion (lignes incurvées vers la tache).
-  vec2 warp = -gdir * (0.90 * pullN)
-            +  tdir * (0.50 * sw)
-            +  organic * 0.55;
+  // [v9.11] Rééquilibrage : le BRUIT 2D devient dominant, l'attraction
+  // et la torsion alignées sur le contour sont réduites → la structure
+  // de l'effet n'est plus "lisible" (fin de l'aspect dessiné/stylisé),
+  // la métamorphopsie reste locale, fluide et irrégulière.
+  vec2 warp = -gdir * (0.62 * pullN)
+            +  tdir * (0.28 * sw)
+            +  organic * 0.75;
 
   // Amplitude portée par la bande de contour, croissante avec la sévérité :
   // léger = inflexion discrète, modéré = lignes franchement déviées,
-  // sévère = abords fortement métamorphopsiques.
-  float wamp = (0.005 + amt * 0.026 + severe * 0.012) * band;
+  // sévère = amplification NATURELLE du modéré (bonus réduit [v9.11] :
+  // le handicap supplémentaire vient surtout du scotome plus dense).
+  float wamp = (0.005 + amt * 0.026 + severe * 0.008) * band;
   vec2 wuv = coord + (warp / uAspectFix) * wamp;
   // Sécurisation des UV déformés : pas de bordure noire, pas de
   // répétition, pas de bande étirée (marge compatible fitUv).
@@ -1949,7 +1954,10 @@ void main(){
     float f = dmlaShapeField(q, ext);
 
     // shape : enveloppe à bord TRÈS progressif ; core : cœur dense.
-    float shape = smoothstep(0.10, 1.00, f);
+    // [v9.11] En SÉVÈRE uniquement, la rampe du bord est élargie →
+    // transition encore plus fondue dans la scène (pas de bord dur,
+    // pas d'effet "couche posée"). Léger et modéré : inchangés.
+    float shape = smoothstep(mix(0.10, 0.05, severe), mix(1.00, 1.18, severe), f);
     float core  = smoothstep(0.50, 1.75, f);
 
     // Zone maculaire utile (même support compact que applyDmlaWarp).
@@ -2004,17 +2012,20 @@ void main(){
       float scotomaStage = mix(0.08, 1.0, smoothstep(0.45, 0.72, amt));
 
       // Opacité : léger = voile à peine perceptible ; modéré = tache
-      // grisâtre partielle et translucide ; SÉVÈRE ≈ 0.80–0.95 dans
-      // le cœur (presque opaque mais jamais aplat uniforme).
-      float dens = shape * smoothstep(0.12, 0.95, amt) * (0.55 + 0.45 * core);
+      // grisâtre partielle et translucide ; sévère = dense au CŒUR.
+      // [v9.11] En sévère, le poids au bord (core=0) est ABAISSÉ et
+      // reporté sur le cœur → bord fondu, plus de rim sombre marqué.
+      float rimW = mix(0.55 + 0.45 * core, 0.32 + 0.68 * core, severe);
+      float dens = shape * smoothstep(0.12, 0.95, amt) * rimW;
       dens *= scotomaStage;
       dens *= mix(0.86 + 0.14 * tex,            // léger/modéré : marbrures discrètes
-                  mix(0.80, 0.96, tex),          // sévère : opacité variable 80–96 %
+                  mix(0.87, 0.97, tex),          // sévère : [v9.11] contraste interne réduit
                   severe);
       // Lacunes basse fréquence : zones légèrement plus claires /
       // translucides où de très faibles fragments d'image filtrent
-      // (statiques, sans effet directionnel).
-      dens *= 1.0 - (0.10 + severe * 0.22) * smoothstep(0.55, 0.85, dmlaFbm(q * 7.0 + 21.0));
+      // (statiques, sans effet directionnel). [v9.11] Amplitude réduite
+      // en sévère : plus de "trous" contrastés lisibles comme un motif.
+      dens *= 1.0 - (0.10 + severe * 0.12) * smoothstep(0.55, 0.85, dmlaFbm(q * 7.0 + 21.0));
       // Grain lent anti-aplat (±3 %, dérive lente, pas de scintillement).
       dens *= 0.97 + 0.06 * grain;
 
@@ -2024,13 +2035,21 @@ void main(){
       vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.13, 0.11, 0.095),
                       smoothstep(0.30, 0.90, amt));
       veil *= 0.91 + 0.18 * tex;
+      // [v9.11] SÉVÈRE : dégradé tonal interne — le BORD de la tache est
+      // gris translucide, les tons sombres sont réservés au cœur profond.
+      // Supprime le liseré noir "dessiné" au contour tout en gardant un
+      // centre dense et handicapant (amplification organique du modéré).
+      vec3 rimVeil = vec3(0.42, 0.41, 0.38) * (0.94 + 0.10 * tex);
+      veil = mix(veil, mix(rimVeil, veil, smoothstep(0.18, 0.90, f)), severe);
       col = mix(col, veil, clamp(dens, 0.0, 1.0));
 
       // 4) Micro-zones plus denses (sévère) : îlots sombres internes,
       // positionnés par bruit 2D (aucun motif radial possible).
+      // [v9.11] Confinés au CŒUR (core²), poids et contraste réduits,
+      // seuil relevé → plus de "spots"/"traces" sombres près du bord.
       if(severe > 0.001){
-        float spots = smoothstep(0.55, 0.95, dmlaFbm(q * 12.0 + 2.7));
-        col = mix(col, vec3(0.065, 0.058, 0.055) * (0.9 + 0.2 * tex), core * spots * severe * 0.45);
+        float spots = smoothstep(0.62, 0.95, dmlaFbm(q * 12.0 + 2.7));
+        col = mix(col, vec3(0.09, 0.082, 0.075) * (0.9 + 0.2 * tex), core * core * spots * severe * 0.25);
       }
     }
   }
