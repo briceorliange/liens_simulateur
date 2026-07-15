@@ -450,7 +450,7 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <span class="mc-go">›</span>
       </button>
     </div>
-    <div class="home-foot">v9.11 · DMLA : sévère organique (bord gris fondu, tons sombres au cœur, spots confinés), abords sans liseré ni contour dessiné, léger/modéré conservés</div>
+    <div class="home-foot">v9.12 · DMLA sévère : warp basse fréquence lissé + plafond de déplacement (anti-repli/duplication), attraction atténuée au bord, domaines de bruit tournés (anti-cadre), léger/modéré préservés</div>
   </section>
 
   <!-- ===== ÉCRAN DÉMO — Pupitre simplifié (cumul démence + trouble visuel) ===== -->
@@ -1630,19 +1630,30 @@ float dmlaBlobs(vec2 p){
        + 0.80 * dmlaBlob(p, vec2(-0.22, -0.44), 0.78)
        + 0.60 * dmlaBlob(p, vec2( 0.30, -0.38), 0.68);
 }
-// Version ALLÉGÉE (métaballes + modulation fbm 2 octaves) : sert au calcul
-// du GRADIENT du contour (2 évaluations décalées) dans applyDmlaWarp.
-float dmlaShapeLite(vec2 q, float ext){
-  float f = dmlaBlobs(q / max(ext, 1e-4));
-  f *= 0.86 + 0.28 * dmlaFbm2(q * 16.0 + 4.7);
-  return f;
-}
 // Version COMPLÈTE (identique à la forme utilisée pour dessiner le scotome
 // dans main()) : contour irrégulier multi-échelles, jamais de motif radial.
 float dmlaShapeField(vec2 q, float ext){
   float f = dmlaBlobs(q / max(ext, 1e-4));
   f *= 0.86 + 0.28 * dmlaFbm(q * 16.0 + 4.7);
   f += (dmlaFbm(q * 34.0 + 13.0) - 0.5) * 0.20 * smoothstep(0.0, 0.15, f);
+  return f;
+}
+// [DMLA v9.12] Domaines de bruit TOURNÉS : casse l'alignement des cellules
+// du value-noise sur les axes X/Y → aucune transition rectangulaire ou
+// "en cadre" ne peut apparaître dans la géométrie du warp.
+vec2 dmlaRot(vec2 p, float a){
+  float c = cos(a), s = sin(a);
+  return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+// [DMLA v9.12] Champ LISSE basse fréquence, réservé à la GÉOMÉTRIE
+// (bande + gradient du warp) : métaballes + une seule modulation douce
+// tournée. Les bruits fins (q*16, q*34) restent réservés à la TEXTURE
+// du scotome (dmlaShapeField) et ne pilotent PLUS les coordonnées UV →
+// champ de déplacement continu, sans variation brutale entre pixels
+// voisins, sans pointe locale, sans inversion rapprochée (anti-repli).
+float dmlaShapeSmooth(vec2 q, float ext){
+  float f = dmlaBlobs(q / max(ext, 1e-4));
+  f *= 0.90 + 0.20 * dmlaFbm2(dmlaRot(q, 0.7) * 6.0 + 4.7);
   return f;
 }
 
@@ -1658,8 +1669,9 @@ float dmlaShapeField(vec2 q, float ext){
 //    s'éloignant. Transition intrinsèquement irrégulière → aucun
 //    halo lisse, aucun anneau visible, aucun effet "heat wave".
 //  • Champ vectoriel LOCAL construit à partir :
-//      1. du GRADIENT du champ de forme (2 évaluations décalées de
-//         dmlaShapeLite) → direction perpendiculaire au contour réel ;
+//      1. du GRADIENT du champ de forme LISSE (2 évaluations décalées
+//         de dmlaShapeSmooth) → direction stable, perpendiculaire au
+//         contour réel, sans inversion rapprochée ;
 //      2. d'une composante d'ATTRACTION/COMPRESSION douce : les
 //         lignes droites voisines (feuilles, cadres, portes)
 //         paraissent tirées / incurvées vers le scotome, comme les
@@ -1697,48 +1709,60 @@ vec2 applyDmlaWarp(vec2 coord){
   // déformation, sortie immédiate (meubles, portes, affiches stables).
   if(rr >= ext * 1.45) return coord;
 
-  // Champ de forme du scotome (le même que la tache affichée).
-  float f0 = dmlaShapeField(q, ext);
+  // [v9.12] Champ de forme LISSE (basse fréquence uniquement) : la bande
+  // et le gradient ne voient plus les bruits fins → plus de gradient
+  // local excessif, plus de repli/duplication des lignes.
+  float fS = dmlaShapeSmooth(q, ext);
 
-  // Bande PÉRISCOTOMALE : suit le contour irrégulier de f0.
-  //  ~0 loin de la tache, maximale au voisinage du bord, et [v9.11]
-  //  s'éteint AVANT le voile dense (core ≈ f>0.5) : plus aucune
-  //  déformation forte sous le bord sombre → fin des liserés étirés
-  //  et des traînées qui "contournent" la zone centrale.
-  float band = smoothstep(0.012, 0.32, f0) * (1.0 - smoothstep(0.55, 1.30, f0));
+  // Bande PÉRISCOTOMALE organique et LARGE : faible dans le cœur opaque,
+  // montée douce autour, maximum dans une bande large qui suit la forme
+  // du scotome (pas de pic étroit type anneau), décroissance vers la
+  // périphérie. Calculée sur le champ lisse → contour arrondi, jamais
+  // rectangulaire, jamais "en cadre".
+  float band = smoothstep(0.020, 0.40, fS) * (1.0 - smoothstep(0.50, 1.20, fS));
   if(band < 0.004) return coord;
 
-  // GRADIENT du contour (différences finies sur la forme allégée) :
-  // pointe vers l'intérieur du scotome, suit ses lobes asymétriques.
-  float eps = max(ext * 0.05, 1e-4);
-  float fc = dmlaShapeLite(q, ext);
-  float fx = dmlaShapeLite(q + vec2(eps, 0.0), ext);
-  float fy = dmlaShapeLite(q + vec2(0.0, eps), ext);
-  vec2 grad = vec2(fx - fc, fy - fc) / eps;
+  // GRADIENT du contour, différences finies ÉLARGIES (eps = 9 % de ext)
+  // sur le champ lisse → direction stable, sans inversion rapprochée.
+  float eps = max(ext * 0.09, 1e-4);
+  float fx = dmlaShapeSmooth(q + vec2(eps, 0.0), ext);
+  float fy = dmlaShapeSmooth(q + vec2(0.0, eps), ext);
+  vec2 grad = vec2(fx - fS, fy - fS) / eps;
   vec2 gdir = grad / max(length(grad), 1e-3);
   vec2 tdir = vec2(-gdir.y, gdir.x);
 
-  // Composantes du champ vectoriel périscotomal :
-  float pullN = 0.55 + 0.45 * dmlaFbm2(q * 5.5 + 31.0);        // attraction modulée (asymétrie)
-  float sw    = (dmlaFbm2(q * 3.1 + 20.0) - 0.5) * 2.0;        // torsion à signe variable
-  vec2 organic = vec2(dmlaFbm2(q * 4.1 + vec2( 3.7,  8.1)) - 0.375,
-                      dmlaFbm2(q * 4.1 + vec2(11.4,  2.6)) - 0.375) * 2.2;
-  // [v9.11] Rééquilibrage : le BRUIT 2D devient dominant, l'attraction
-  // et la torsion alignées sur le contour sont réduites → la structure
-  // de l'effet n'est plus "lisible" (fin de l'aspect dessiné/stylisé),
-  // la métamorphopsie reste locale, fluide et irrégulière.
-  vec2 warp = -gdir * (0.62 * pullN)
-            +  tdir * (0.28 * sw)
-            +  organic * 0.75;
+  // Composantes BASSE FRÉQUENCE, domaines tournés (aucun alignement X/Y) :
+  float pullN = 0.55 + 0.45 * dmlaFbm2(dmlaRot(q,  1.9) * 2.8 + 31.0);
+  float sw    = (dmlaFbm2(dmlaRot(q, -1.2) * 2.2 + 20.0) - 0.375) * 2.6;
+  vec2 organic = vec2(dmlaFbm2(dmlaRot(q, 0.35) * 2.6 + vec2( 3.7,  8.1)) - 0.375,
+                      dmlaFbm2(dmlaRot(q, 2.50) * 2.6 + vec2(11.4,  2.6)) - 0.375) * 2.0;
+  // [v9.12] Attraction ATTÉNUÉE au contact du bord opaque : le maximum
+  // de compression n'est plus collé à la frontière du voile → les lignes
+  // du document ne s'accumulent plus au bord du scotome.
+  float pullW = 0.55 * pullN * (1.0 - 0.55 * smoothstep(0.35, 0.90, fS));
+  vec2 warp = -gdir * pullW
+            +  tdir * (0.24 * sw)
+            +  organic * 0.70;
+  // Lissage de la norme du champ (pas de pointe locale).
+  float wl = length(warp);
+  warp *= min(wl, 1.30) / max(wl, 1e-4);
 
-  // Amplitude portée par la bande de contour, croissante avec la sévérité :
-  // léger = inflexion discrète, modéré = lignes franchement déviées,
-  // sévère = amplification NATURELLE du modéré (bonus réduit [v9.11] :
-  // le handicap supplémentaire vient surtout du scotome plus dense).
-  float wamp = (0.005 + amt * 0.026 + severe * 0.008) * band;
-  vec2 wuv = coord + (warp / uAspectFix) * wamp;
-  // Sécurisation des UV déformés : pas de bordure noire, pas de
-  // répétition, pas de bande étirée (marge compatible fitUv).
+  // Amplitude : léger = inflexion discrète, modéré = lignes franchement
+  // déviées, sévère = amplification CONTINUE du modéré (bonus réduit
+  // [v9.12] : −20/−30 % sur le maximum sévère).
+  float wamp = (0.005 + amt * 0.022 + severe * 0.004) * band;
+  vec2 off = (warp / uAspectFix) * wamp;
+
+  // [v9.12] PLAFOND ABSOLU du déplacement (mesuré en espace isotrope) :
+  // aucun pixel ne peut être déplacé assez loin pour provoquer un
+  // chevauchement, une duplication ou une quasi-inversion locale.
+  float maxWarp = 0.004 + amt * 0.016;
+  float ol = length(off * uAspectFix);
+  if(ol > maxWarp) off *= maxWarp / max(ol, 1e-5);
+
+  vec2 wuv = coord + off;
+  // Clamp de PROTECTION des bords caméra uniquement (marges écran) :
+  // n'intervient jamais autour du scotome, ne crée aucune zone aplatie.
   return clamp(wuv, vec2(0.002), vec2(0.998));
 }
 
@@ -1988,6 +2012,16 @@ void main(){
         col = mix(col, lowC, mask * (0.30 + amt * 0.42 + moderate * 0.08));
       }
 
+      // [v9.12] SÉVÈRE : très légère compression de contraste dans la
+      // bande métamorphopsique — évite qu'une compression résiduelle
+      // des UV épaississe les lignes noires. Progressive et locale :
+      // pas de voile gris massif, pas de flou supplémentaire, les
+      // lignes restent lisibles mais sans trait noir exagéré.
+      if(severe > 0.001){
+        float cm = smoothstep(0.05, 0.45, f) * (1.0 - smoothstep(0.60, 1.10, f));
+        col = (col - 0.5) * (1.0 - 0.14 * cm * severe) + 0.5;
+      }
+
       // 2) LÉGER : gêne centrale très subtile — perte de contraste
       // et légère désaturation au point de fixation. Pas de tache.
       if(mild > 0.001){
@@ -2034,7 +2068,9 @@ void main(){
       // aucune coupure de couleur ou de contraste au bord du scotome.
       vec3 veil = mix(vec3(0.45, 0.44, 0.41), vec3(0.13, 0.11, 0.095),
                       smoothstep(0.30, 0.90, amt));
-      veil *= 0.91 + 0.18 * tex;
+      // [v9.12] Sévère : marbrures du voile ADOUCIES (variations internes
+      // plus douces, cœur toujours très opaque, aucun motif contrasté).
+      veil *= mix(0.91 + 0.18 * tex, 0.94 + 0.10 * tex, severe);
       // [v9.11] SÉVÈRE : dégradé tonal interne — le BORD de la tache est
       // gris translucide, les tons sombres sont réservés au cœur profond.
       // Supprime le liseré noir "dessiné" au contour tout en gardant un
@@ -2045,11 +2081,11 @@ void main(){
 
       // 4) Micro-zones plus denses (sévère) : îlots sombres internes,
       // positionnés par bruit 2D (aucun motif radial possible).
-      // [v9.11] Confinés au CŒUR (core²), poids et contraste réduits,
-      // seuil relevé → plus de "spots"/"traces" sombres près du bord.
+      // [v9.12] Encore atténués : seuil relevé, poids réduit, couleur
+      // rapprochée du voile → aucun halo noir, aucun spot lisible.
       if(severe > 0.001){
-        float spots = smoothstep(0.62, 0.95, dmlaFbm(q * 12.0 + 2.7));
-        col = mix(col, vec3(0.09, 0.082, 0.075) * (0.9 + 0.2 * tex), core * core * spots * severe * 0.25);
+        float spots = smoothstep(0.68, 0.97, dmlaFbm(q * 12.0 + 2.7));
+        col = mix(col, vec3(0.10, 0.092, 0.083) * (0.92 + 0.16 * tex), core * core * spots * severe * 0.16);
       }
     }
   }
