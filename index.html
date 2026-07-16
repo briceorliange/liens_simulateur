@@ -416,7 +416,24 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
   background:var(--surface-3); outline:none; margin:8px 0 6px;}
 #headset-card input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%;
   background:var(--text); border:3px solid var(--mode); cursor:pointer;}
-#btn-headset-mire.on{background:color-mix(in srgb, var(--mode) 18%, transparent); border-color:var(--mode);}
+#btn-headset-mire.on, #btn-direct-cam.on{background:color-mix(in srgb, var(--mode) 18%, transparent); border-color:var(--mode);}
+/* [ADAPTIVE QUALITY] boutons de qualité : même style que les boutons FOV */
+.hq-btn{flex:1; font-size:12.5px; font-weight:500; padding:10px 4px; color:var(--muted); background:var(--surface-2);
+  border:1px solid var(--line); border-radius:10px; cursor:pointer; transition:.15s;}
+.hq-btn.active{background:color-mix(in srgb, var(--mode) 16%, transparent); color:var(--text); border-color:var(--mode);}
+.adapt-row{display:flex; align-items:center; gap:8px; margin-top:12px; font:500 12px system-ui,sans-serif; color:var(--text); cursor:pointer;}
+/* [PERFORMANCE DIAGNOSTIC] bloc compact Expert */
+#headset-diag{margin-top:10px; font:500 10px/1.6 'IBM Plex Mono',monospace; color:var(--muted);
+  white-space:pre-line; background:rgba(255,255,255,.03); border:1px solid var(--line); border-radius:10px; padding:8px 10px;}
+#headset-diag:empty{display:none;}
+/* [HEADSET PERFORMANCE] En mode casque : suppression des effets CSS coûteux du
+   HUD (backdrop-filter, grandes ombres, transitions) → le compositeur reste
+   entièrement disponible pour le rendu caméra. HUD masqué = display:none
+   (plus AUCUNE composition, contrairement à opacity:0). */
+body.headset-mode .hud-status, body.headset-mode #lat-hud, body.headset-mode .hud-bar,
+body.headset-mode #panel, body.headset-mode #mode-pill{
+  backdrop-filter:none !important; box-shadow:none !important; transition:none !important;}
+body.headset-mode.headset-hud-hidden #sim-hud{display:none !important;}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important; animation-duration:.01ms !important;}}
 </style>
@@ -669,12 +686,26 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <button class="hfov-btn active" data-fov="135">Standard</button>
         <button class="hfov-btn" data-fov="155">Large</button>
       </div>
+      <!-- [ADAPTIVE QUALITY] Sélecteur « Qualité du mode casque » (Formateur + Expert).
+           Défaut : Équilibré. En Démonstration : Équilibré + adaptation dynamique. -->
+      <p class="sc-lbl" style="margin-top:12px;">Qualité du mode casque</p>
+      <div class="hfov-select" id="quality-select">
+        <button class="hq-btn" data-q="fluid">Fluidité</button>
+        <button class="hq-btn active" data-q="balanced">Équilibré</button>
+        <button class="hq-btn" data-q="sharp">Netteté</button>
+      </div>
       <div class="expert-only">
         <p class="sc-lbl" style="margin-top:12px;">Correction des lentilles · <span id="headset-lens-readout">0</span></p>
         <input type="range" id="headset-lens-range" min="0" max="30" value="0">
+        <!-- [ADAPTIVE QUALITY] Interrupteur Expert « Adaptation automatique » (ON par défaut) -->
+        <label class="adapt-row"><input type="checkbox" id="auto-adapt-toggle" checked> Adaptation automatique</label>
         <div class="setup-actions">
           <button id="btn-headset-mire">Afficher la mire casque</button>
+          <!-- [DIRECT CAMERA TEST] Compare latence native / latence LIENS / coût des effets -->
+          <button id="btn-direct-cam">Test caméra directe</button>
         </div>
+        <!-- [PERFORMANCE DIAGNOSTIC] mis à jour 2×/s maximum -->
+        <div id="headset-diag"></div>
       </div>
     </div>
 
@@ -813,7 +844,8 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <label class="switch"><input type="checkbox" class="fx-toggle"><span class="slider-toggle"></span></label>
       </div>
       <div class="sub-sliders">
-        <div class="sub-row"><label>Global 0/1</label><input type="range" class="fx-sub" data-k="global" min="0" max="1" value="1"></div>
+        <!-- [LOW LATENCY] Retard global : diagnostic Expert uniquement, jamais en casque -->
+        <div class="sub-row"><label>Global 0/1 · diag Expert, hors casque</label><input type="range" class="fx-sub" data-k="global" min="0" max="1" value="0"></div>
         <div class="sub-row"><label>Retard</label><input type="range" class="fx-sub" data-k="delay" min="0" max="100" value="55"></div>
         <div class="sub-row"><label>Taille zone</label><input type="range" class="fx-sub" data-k="size" min="0" max="100" value="55"></div>
         <div class="sub-row"><label>Décalage X</label><input type="range" class="fx-sub" data-k="offX" min="0" max="100" value="50"></div>
@@ -1097,7 +1129,10 @@ const state = {
   fog:      { on:false, ghost:35, sharpness:40 },
   halluc:   { on:false, frequency:35, intensity:50 },
   distort:  { on:false, amplitude:30, speed:25 },
-  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:1 },
+  /* [LOW LATENCY] global:0 par défaut : le retard ne concerne QUE les mains.
+     Le retard de TOUTE l'image (global:1) n'est plus qu'un outil de diagnostic
+     Expert, interdit en mode casque (voir globalLatencyActive()). */
+  latency:  { on:false, delay:55, size:55, offX:50, offY:50, mirror:0, global:0 },
   depth:    { on:false, separation:45, scale:40 },
   face:     { on:false, threshold:45, blur:55, warp:55 },
   overload: { on:false, amount:40 },   /* NOUVEAU — surcharge visuelle cognitive (Module A) */
@@ -1405,19 +1440,113 @@ const video = document.getElementById('video');
 const overlay = document.getElementById('permission-overlay');
 const errBox = document.getElementById('perm-error');
 
+/* ================= [CAMERA PROFILE] =================
+   Trois profils caméra. Contraintes « ideal » uniquement (jamais « exact ») :
+   le navigateur négocie sans jamais lever d'OverconstrainedError.
+   - fluid    : 720p / 60 fps idéal — priorité à la fréquence d'image ;
+   - balanced : 1080p / 60 fps idéal — repli automatique 720p si besoin ;
+   - sharp    : 1080p / 30 fps idéal — priorité aux détails. */
+const CAMERA_PROFILES = {
+  fluid:    { width:{ideal:1280}, height:{ideal:720},  frameRate:{ideal:60, min:30} },
+  balanced: { width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:60, min:30} },
+  sharp:    { width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30, min:24} }
+};
+// Paramètres RÉELLEMENT accordés par le navigateur (affichés dans le diagnostic
+// Expert : valeurs obtenues, pas seulement demandées).
+const camInfo = { w:0, h:0, fps:0, deviceLabel:'', facing:'', focus:'', profile:'balanced' };
+let cameraStream = null;
+
+/* [VIDEO FRAME SYNC] requestVideoFrameCallback() signale qu'une NOUVELLE frame
+   caméra existe. On évite ainsi de renvoyer la même image au GPU à chaque
+   requestAnimationFrame : un écran 120 Hz avec une caméra 30 fps économise
+   3 transferts de texture sur 4 (moins de charge → moins de latence). */
+let newVideoFrameAvailable = false;
+let videoFrameCount = 0;   // compteur → FPS caméra réel (diagnostic)
+const hasRVFC = ('requestVideoFrameCallback' in HTMLVideoElement.prototype);
+function onVideoFrame(){
+  newVideoFrameAvailable = true;
+  videoFrameCount++;
+  video.requestVideoFrameCallback(onVideoFrame);
+}
+
+/* [CAMERA PROFILE] Réglages avancés (mise au point / exposition / balance des
+   blancs continues, resizeMode none). Chaque contrainte n'est appliquée que si
+   elle figure dans les capacités réelles de la piste ; chaque application a son
+   propre try/catch : un refus n'arrête JAMAIS la caméra. Aucun zoom numérique. */
+async function applyAdvancedCameraSettings(track){
+  let caps = null;
+  try{ caps = track.getCapabilities ? track.getCapabilities() : null; }
+  catch(e){ console.warn('getCapabilities indisponible :', e); }
+  if(!caps) return;
+  const wanted = [
+    ['focusMode','continuous'],
+    ['exposureMode','continuous'],
+    ['whiteBalanceMode','continuous'],
+    ['resizeMode','none']
+  ];
+  for(const [k, v] of wanted){
+    const c = caps[k];
+    if(Array.isArray(c) && c.includes(v)){
+      try{ await track.applyConstraints({ advanced:[{ [k]: v }] }); }
+      catch(e){ console.warn('Réglage caméra avancé refusé (' + k + ') :', e); }
+    }
+  }
+  if(Array.isArray(caps.focusMode)) camInfo.focus = caps.focusMode.join('/');
+}
+
+function readTrackSettings(track){
+  try{
+    const settings = track.getSettings ? track.getSettings() : {};
+    camInfo.w = settings.width || 0;
+    camInfo.h = settings.height || 0;
+    camInfo.fps = Math.round(settings.frameRate || 0);
+    camInfo.facing = settings.facingMode || '';
+    camInfo.deviceLabel = track.label || settings.deviceId || '';
+  }catch(e){ console.warn('getSettings indisponible :', e); }
+}
+
+async function startCamera(profileName){
+  camInfo.profile = profileName;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: Object.assign({ facingMode:{ ideal:'environment' } }, CAMERA_PROFILES[profileName]),
+    audio: false
+  });
+  cameraStream = stream;
+  const track = stream.getVideoTracks()[0];
+  readTrackSettings(track);
+  applyAdvancedCameraSettings(track).then(()=> readTrackSettings(track)); // jamais bloquant
+  video.srcObject = stream;
+  await video.play();
+  if(hasRVFC) video.requestVideoFrameCallback(onVideoFrame);
+}
+
+/* [CAMERA PROFILE] Changement de profil À CHAUD (sans redemander la caméra) :
+   applyConstraints sur la piste existante, échec non fatal. */
+function applyCameraProfile(profileName){
+  const track = cameraStream && cameraStream.getVideoTracks()[0];
+  if(!track) return;
+  camInfo.profile = profileName;
+  track.applyConstraints(Object.assign({}, CAMERA_PROFILES[profileName]))
+    .then(()=> readTrackSettings(track))
+    .catch(e => console.warn('Changement de profil caméra refusé :', e));
+}
+
 document.getElementById('enable-btn').addEventListener('click', async ()=>{
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} },
-      audio:false
-    });
-    video.srcObject = stream;
-    await video.play();
+    await startCamera('balanced');   // [CAMERA PROFILE] défaut du mode casque : Équilibré
     overlay.style.display='none';
     startRenderLoop();
   }catch(err){
-    errBox.style.display='block';
-    startFallback();
+    console.error('Caméra profil Équilibré refusée, repli Fluidité (720p) :', err);
+    try{
+      await startCamera('fluid');
+      overlay.style.display='none';
+      startRenderLoop();
+    }catch(err2){
+      console.error('Accès caméra impossible :', err2);
+      errBox.style.display='block';
+      startFallback();
+    }
   }
 });
 
@@ -1425,7 +1554,20 @@ document.getElementById('enable-btn').addEventListener('click', async ()=>{
 const glcanvas = document.getElementById('glcanvas');
 const fxcanvas = document.getElementById('fxcanvas');
 const fxctx = fxcanvas.getContext('2d');
-const gl = glcanvas.getContext('webgl2', {alpha:false});
+/* [HEADSET PERFORMANCE] Contexte WebGL2 optimisé pour un rendu vidéo plein
+   écran : pas d'antialiasing multisample (inutile sur un simple quad), pas de
+   depth/stencil, desynchronized:true pour réduire la latence de composition,
+   powerPreference high-performance. Repli sur l'ancien contexte si une option
+   n'est pas reconnue par le navigateur. */
+let gl = null;
+try{
+  gl = glcanvas.getContext('webgl2', {
+    alpha:false, antialias:false, depth:false, stencil:false,
+    premultipliedAlpha:false, preserveDrawingBuffer:false,
+    powerPreference:'high-performance', desynchronized:true
+  });
+}catch(e){ console.warn('Options WebGL2 avancées refusées, repli :', e); }
+if(!gl) gl = glcanvas.getContext('webgl2', {alpha:false});
 gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // corrige l'orientation de l'image caméra
 
 /* ---------- Mode casque ----------
@@ -1489,6 +1631,45 @@ let headsetLensCorrection = 0;
 
 /* [HEADSET CALIBRATION] Mire de calibration du casque (bouton Expert). */
 let headsetMireOn = false;
+
+/* ================= [ADAPTIVE QUALITY] =================
+   Trois profils de RENDU, indépendants du stade clinique :
+   - fluid    : DPR ≤ 1.5, flous à 4 prélèvements, MediaPipe ralenti, caméra 720p/60 ;
+   - balanced : DPR ≤ 2.0, qualité actuelle optimisée (défaut) ;
+   - sharp    : DPR ≤ 2.5, caméra 1080p/30, qualité maximale des effets.
+   Le DPR doit être adaptatif : rendre plus de pixels que la caméra n'en
+   fournit gaspille du GPU sans gagner en netteté, et en immersion la FLUIDITÉ
+   prime sur la résolution (une image en retard lors des mouvements de tête est
+   bien plus gênante qu'une image un peu moins définie). Jamais de DPR > 2.5,
+   jamais de 4K. */
+const QUALITY_PROFILES = {
+  fluid:    { maxDpr:1.5, taps:4, mpScale:1.6, camera:'fluid',    label:'Fluidité'  },
+  balanced: { maxDpr:2.0, taps:8, mpScale:1.0, camera:'balanced', label:'Équilibré' },
+  sharp:    { maxDpr:2.5, taps:8, mpScale:1.0, camera:'sharp',    label:'Netteté'   }
+};
+const QUALITY_ORDER = ['fluid','balanced','sharp'];
+let qualityProfile = 'balanced';   // défaut : Équilibré (Démonstration incluse)
+let qualityLocked  = false;        // vrai après un choix manuel → l'auto ne change plus le PROFIL
+let autoAdaptOn    = true;         // interrupteur Expert « Adaptation automatique »
+let adaptMpScale   = 1;            // palier 1 : ralentit MediaPipe (1 → 1.5 → 2)
+let adaptTapsScale = 1;            // palier 2 : 1 = taps du profil, 0.5 = flous allégés
+let adaptDprDrop   = 0;            // palier 3 : baisse du DPR par pas de 0.25
+let directCameraTest = false;      // [DIRECT CAMERA TEST] variable moteur globale
+let perfLight = 'green';           // voyant : green / orange / red
+let currentDpr = 1;
+
+// [PERFORMANCE DIAGNOSTIC] mesures glissantes (échantillonnage toutes les 500 ms)
+const perf = {
+  frames:0, sumDt:0, avgFps:60, avgMs:16.7,
+  camFps:0, lastCamCount:0,
+  handRate:0, faceRate:0, handCount:0, faceCount:0,
+  lastSample:0, badSince:0, goodSince:0, lastAdapt:0
+};
+
+// [ADAPTIVE QUALITY] nombre de prélèvements effectifs des flous du shader
+function currentTaps(){
+  return Math.max(4, Math.round(QUALITY_PROFILES[qualityProfile].taps * adaptTapsScale));
+}
 
 /* [HEADSET FIT] Cadrage caméra → vue.
    Deux modes explicites :
@@ -1595,6 +1776,7 @@ function setHeadsetMode(on){
   headsetMode = !!on;
   document.body.classList.toggle('headset-mode', headsetMode);
   if(headsetMode){
+    requestWakeLock();   // [HEADSET PERFORMANCE] pas de mise en veille dans le casque
     showHeadsetHud();                                  // HUD visible quelques secondes, puis auto-hide
   }else{
     document.body.classList.remove('headset-hud-hidden'); // retour au HUD normal, aucun auto-hide
@@ -1609,10 +1791,35 @@ function setHeadsetMode(on){
   resize();
 }
 
+/* [ADAPTIVE QUALITY] DPR cible : remplace le plafond fixe. Tient compte du
+   profil de qualité, de l'adaptation automatique (adaptDprDrop) et de la
+   résolution RÉELLE de la caméra : inutile de rendre beaucoup plus de pixels
+   que la caméra n'en fournit en détail (marge ×1.35 conservée pour la netteté
+   sous les lentilles). Plafond absolu : 2.5. */
+function getTargetDpr(){
+  const prof = QUALITY_PROFILES[qualityProfile];
+  let dpr = Math.min(window.devicePixelRatio || 1, prof.maxDpr);
+  dpr = Math.max(1, dpr - adaptDprDrop);
+  const camW = (typeof video !== 'undefined' && video && video.videoWidth) ? video.videoWidth : 0;
+  if(camW > 0){
+    // Largeur CSS réellement couverte par la caméra : demi-écran par œil
+    // uniquement quand la découpe est gauche/droite (écran paysage).
+    const perEyeCss = (headsetMode && innerWidth >= innerHeight) ? innerWidth / 2 : innerWidth;
+    const camCap = (camW * 1.35) / Math.max(1, perEyeCss);
+    dpr = Math.min(dpr, Math.max(1, camCap));
+  }
+  return Math.min(2.5, Math.max(1, dpr));
+}
+
 function resize(){
-  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const dpr = getTargetDpr();
+  currentDpr = dpr;
+  const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  // [ADAPTIVE QUALITY] Les canvas ne sont redimensionnés que si la cible
+  // change réellement (jamais à chaque frame ; un resize efface le canvas).
   [glcanvas, fxcanvas].forEach(c=>{
-    c.width = innerWidth*dpr; c.height = innerHeight*dpr;
+    if(c.width !== w)  c.width  = w;
+    if(c.height !== h) c.height = h;
   });
   if(gl) gl.viewport(0,0,glcanvas.width,glcanvas.height);
   dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
@@ -1622,6 +1829,47 @@ function resize(){
 }
 window.addEventListener('resize', resize);
 resize();
+
+/* [ADAPTIVE QUALITY] Changement de profil de qualité.
+   fromAuto=false (choix manuel) : verrouille le profil (l'adaptation continue
+   d'ajuster MediaPipe/taps/DPR mais ne change plus de profil) et remet les
+   paliers automatiques à zéro. Régénère uniquement les calques 2D dépendant
+   de la résolution — les modèles MediaPipe ne sont PAS recréés. */
+function setQualityProfile(name, fromAuto){
+  if(!QUALITY_PROFILES[name]) return;
+  qualityProfile = name;
+  if(!fromAuto){
+    qualityLocked = true;
+    adaptMpScale = 1; adaptTapsScale = 1; adaptDprDrop = 0;
+  }
+  applyCameraProfile(QUALITY_PROFILES[name].camera);  // à chaud, non fatal
+  resize();                                           // DPR + viewport WebGL
+  if(typeof window.onDprLayersDirty === 'function') window.onDprLayersDirty();
+  if(typeof window.syncQualityUI === 'function') window.syncQualityUI();
+}
+
+/* ================= [HEADSET PERFORMANCE] Énergie & chauffe =================
+   - Wake Lock : l'écran reste allumé pendant une simulation active ; relâché
+     à la sortie de simulation ou quand l'onglet est masqué.
+   - Onglet masqué : requestAnimationFrame est gelé par le navigateur ; on
+     coupe en plus explicitement détections, tampon et diagnostics via
+     document.hidden. La caméra n'est PAS arrêtée (reprise instantanée). */
+let wakeLock = null;
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator)) return;
+  try{ wakeLock = await navigator.wakeLock.request('screen'); }
+  catch(e){ console.warn('Wake Lock refusé :', e); }
+}
+function releaseWakeLock(){
+  if(wakeLock){ wakeLock.release().catch(e => console.warn('Wake Lock release :', e)); wakeLock = null; }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible'){
+    if(document.body.classList.contains('in-sim')) requestWakeLock();
+  } else {
+    releaseWakeLock();
+  }
+});
 
 /* ---------- Orientation des champs latéralisés ----------
    Les pertes latéralisées (œil / hémianopsie / quadranopsie) doivent rester du
@@ -1668,6 +1916,10 @@ uniform vec2  uAspectFix; // scale to correct video aspect vs canvas
 // 0.0 = aucune correction (mode normal et défaut). Appliqué séparément dans
 // chaque demi-vue (vUv est local à chaque viewport œil), symétrique et modéré.
 uniform float uLensK;
+// [ADAPTIVE QUALITY] Nombre de prélèvements des flous (4.0 ou 8.0 selon le
+// profil de qualité / l'adaptation automatique). Répartition angulaire
+// régulière → l'apparence clinique reste très proche, le coût GPU est divisé.
+uniform float uTaps;
 
 // Flou central
 uniform float uBlurOn, uBlurIntensity, uBlurDiameter;
@@ -1997,7 +2249,8 @@ void main(){
       vec3 acc = col;
       float n = 1.0;
       for(int i=0;i<8;i++){
-        float a = float(i) * 0.785398;
+        if(float(i) >= uTaps) break;                 // [ADAPTIVE QUALITY]
+        float a = float(i) * (6.2831853 / uTaps);    // répartition régulière
         vec2 o = vec2(cos(a), sin(a)) * r;
         acc += sampleVisualBase(uv+o);
         n += 1.0;
@@ -2063,7 +2316,8 @@ void main(){
     float r = uAcuityAmt * 0.022;
     vec3 acc = col; float n = 1.0;
     for(int i=0;i<8;i++){
-      float a = float(i) * 0.785398;
+      if(float(i) >= uTaps) break;                   // [ADAPTIVE QUALITY]
+      float a = float(i) * (6.2831853 / uTaps);
       vec2 o = vec2(cos(a), sin(a)) * r;
       acc += sampleVisualBase(uv+o); n += 1.0;
     }
@@ -2161,7 +2415,8 @@ void main(){
         float r = amt * 0.012;
         vec3 acc = col * 3.0; float n = 3.0;
         for(int i=0;i<8;i++){
-          float a = float(i) * 0.785398;
+          if(float(i) >= uTaps) break;               // [ADAPTIVE QUALITY]
+          float a = float(i) * (6.2831853 / uTaps);
           vec2 o = vec2(cos(a), sin(a)) * r;
           acc += sampleVisualBase(uv + o); n += 1.0;
         }
@@ -2254,7 +2509,8 @@ void main(){
     float r = uCataractAmt * 0.018;
     vec3 acc = col; float n = 1.0;
     for(int i=0;i<8;i++){
-      float a = float(i) * 0.785398;
+      if(float(i) >= uTaps) break;                   // [ADAPTIVE QUALITY]
+      float a = float(i) * (6.2831853 / uTaps);
       vec2 o = vec2(cos(a), sin(a)) * r;
       acc += sampleVisualBase(uv+o); n += 1.0;
     }
@@ -2459,7 +2715,7 @@ function tex(){
 const videoTex = tex();
 
 const U = {};
-['uTime','uAspectFix','uLensK','uBlurOn','uBlurIntensity','uBlurDiameter',
+['uTime','uAspectFix','uLensK','uTaps','uBlurOn','uBlurIntensity','uBlurDiameter',
  'uTunnelOn','uTunnelDiameter','uTunnelOpacity','uTunnelSoftness',
  'uContrastOn','uContrastAmt','uSaturationAmt',
  'uTintOn','uTintWarmth','uTintHue',
@@ -2763,8 +3019,13 @@ function startRenderLoop(useFallback){
   // Buffer temporel : on garde les dernières frames avec leur horodatage,
   // et on affiche la frame correspondant à "maintenant moins le retard voulu".
   // C'est un vrai décalage (comme un flux vidéo en retard), pas un fondu.
-  const RING_SIZE = 60;
+  /* [LOW LATENCY] Tampon réduit : 32 frames suffisent à couvrir le retard
+     maximal des mains (~0,92 s à ~30 images tamponnées/s). Les canvas sont
+     créés UNE fois et réutilisés ; releaseRing() libère tout dès que plus
+     aucun effet n'a besoin du tampon. */
+  const RING_SIZE = 32;
   let ring = null;
+  function releaseRing(){ ring = null; }
   function ensureRing(w, h){
     if(ring && ring.w===w && ring.h===h) return;
     const slots = [];
@@ -2816,6 +3077,22 @@ function startRenderLoop(useFallback){
   if(handDiagToggle) handDiagToggle.addEventListener('change', e=>{ handDiagOn = e.target.checked; });
   if(handMinimalToggle) handMinimalToggle.addEventListener('change', e=>{ handMinimalOn = e.target.checked; });
   function expertModeOn(){ return !!(panelEl && panelEl.classList.contains('mode-expert')); }
+
+  /* [LOW LATENCY] Sécurité centrale du retard GLOBAL (image complète retardée).
+     Autorisé UNIQUEMENT : hors mode casque + mode Expert + hors test caméra
+     directe + latency.on + global > 0.5. Pourquoi interdit dans le casque :
+     retarder toute l'image pendant un mouvement de tête crée un conflit
+     visuo-vestibulaire très inconfortable (cinétose). Le profil normal de
+     l'application n'affiche donc JAMAIS une ancienne image complète. */
+  function globalLatencyActive(){
+    return !headsetMode &&
+           expertModeOn() &&
+           !directCameraTest &&
+           state.latency.on &&
+           state.latency.global > 0.5;
+  }
+  const pauseOverlayEl = document.getElementById('pause-overlay');
+  function simPaused(){ return !!(pauseOverlayEl && pauseOverlayEl.classList.contains('on')); }
 
   function setHandStatus(txt, ok){
     if(!handStatusEl) return;
@@ -2873,7 +3150,7 @@ function startRenderLoop(useFallback){
       handErrorStreak = 0;
       handLastTs = -1;               // nouvelle instance : la contrainte d'horodatage repart de zéro
       lastVideoTime = -1;
-      setHandStatus('Secours CPU actif', true);
+      setHandStatus('Mode CPU — fréquence réduite', true);   // [MEDIAPIPE SCHEDULER]
     }catch(e2){
       console.error('Secours CPU HandLandmarker échoué :', e2);
       setHandStatus('Erreur de détection : ' + (e2 && e2.message ? e2.message : String(e2)), false);
@@ -2898,11 +3175,13 @@ function startRenderLoop(useFallback){
   })();
 
   function detectHands(t){
-    const wantHands = handDiagOn || (demencesEnabled && ((state.latency.on && state.latency.global <= 0.5) || state.depth.on || state.bodySchema.on));
+    // [MEDIAPIPE SCHEDULER] Détecteur lancé UNIQUEMENT si un effet en dépend
+    const wantHands = !directCameraTest && !simPaused() && !document.hidden &&
+      (handDiagOn || (demencesEnabled && ((state.latency.on && !globalLatencyActive()) || state.depth.on || state.bodySchema.on)));
     if(useFallback || !wantHands){
       handBoxes = []; lastGoodBoxes = []; handLandmarksList = []; lastGoodLandmarks = [];
-      if(handStatusEl && state.latency.on && state.latency.global > 0.5){
-        setHandStatus('mode global', true);
+      if(handStatusEl && globalLatencyActive()){
+        setHandStatus('mode global (diagnostic Expert)', true);
       }
       updateBodyStatus();
       return;
@@ -2912,7 +3191,12 @@ function startRenderLoop(useFallback){
       updateBodyStatus();
       return;
     }
-    if(t - lastHandDetect < 60) return; // ~16 détections/s
+    /* [MEDIAPIPE SCHEDULER] Cadence plafonnée : ~16/s hors casque, ≤ 9/s en
+       mode casque, encore réduite en secours CPU / par l'adaptation auto. */
+    const handInterval = (headsetMode ? 110 : 60) * adaptMpScale
+                       * QUALITY_PROFILES[qualityProfile].mpScale
+                       * (handCpuFallbackDone ? 1.6 : 1);
+    if(t - lastHandDetect < handInterval) return;
     lastHandDetect = t;
 
     // [FIX MAINS] État réel de la vidéo AVANT tout appel à detectForVideo()
@@ -2937,6 +3221,7 @@ function startRenderLoop(useFallback){
       const res = handLandmarker.detectForVideo(video, timestampMs);
       handErrorStreak = 0;
       handFrameAnalyzed = true;
+      perf.handCount++;   // [PERFORMANCE DIAGNOSTIC] cadence réelle
       const lmList = res.landmarks || [];
       const boxes = lmList.map(lm=>{
         let minX=1,minY=1,maxX=0,maxY=0;
@@ -3036,7 +3321,7 @@ function startRenderLoop(useFallback){
   const handPatchCtx = handPatchCanvas.getContext('2d');
 
   function drawHandLag(t, ax, ay){
-    if(!demencesEnabled || !state.latency.on || state.latency.global > 0.5 || handBoxes.length===0 || !ring) return;
+    if(!demencesEnabled || !state.latency.on || globalLatencyActive() || handBoxes.length===0 || !ring) return;
     const delayMs = 220 + (state.latency.delay/100) * 700; // 0,22s à 0,92s : toujours perceptible
     const delayed = findDelayedSlot(t, delayMs);
     if(!delayed) return;
@@ -3105,13 +3390,18 @@ function startRenderLoop(useFallback){
   let faceBoxes = [];
   let lastFaceGood = [], lastFaceGoodT = 0, lastFaceDetect = 0;
   function detectFaces(t){
-    if(!faceTrackingReady || useFallback || !demencesEnabled || !state.face.on){
+    if(!faceTrackingReady || useFallback || !demencesEnabled || !state.face.on ||
+       directCameraTest || simPaused() || document.hidden){
       faceBoxes = []; lastFaceGood = []; return;
     }
-    if(t - lastFaceDetect < 90) return; // ~11 détections/s
+    /* [MEDIAPIPE SCHEDULER] ~11/s hors casque, ≤ 7/s en mode casque. */
+    const faceInterval = (headsetMode ? 150 : 90) * adaptMpScale
+                       * QUALITY_PROFILES[qualityProfile].mpScale;
+    if(t - lastFaceDetect < faceInterval) return;
     lastFaceDetect = t;
     try{
       const res = faceDetector.detectForVideo(video, t);
+      perf.faceCount++;   // [PERFORMANCE DIAGNOSTIC] cadence réelle
       const vw = video.videoWidth||1, vh = video.videoHeight||1;
       const boxes = (res.detections||[]).map(d=>{
         const b = d.boundingBox;
@@ -3625,8 +3915,132 @@ function startRenderLoop(useFallback){
     });
   }
 
+  /* ============ [TEXTURE UPDATE] + [VIDEO FRAME SYNC] ============
+     - texImage2D (réallocation GPU) UNIQUEMENT quand les dimensions de la
+       source changent ; sinon texSubImage2D réutilise la mémoire existante
+       → plus aucune réallocation de texture à chaque frame (gros gain mobile).
+     - La caméra n'est transférée que si une NOUVELLE frame vidéo existe
+       (requestVideoFrameCallback, sinon comparaison de video.currentTime).
+     - Les deux yeux du mode casque réutilisent la MÊME texture : un seul
+       transfert caméra → GPU par frame, deux viewports.
+     Jamais de gl.finish(), readPixels() ni preserveDrawingBuffer. */
+  let texW = 0, texH = 0;
+  let lastUploadedVideoTime = -1;
+  function updateVideoTextureIfNeeded(srcEl){
+    const isVideo = (srcEl === video);
+    if(isVideo && video.readyState < 2) return;
+    const w = isVideo ? video.videoWidth : srcEl.width;
+    const h = isVideo ? video.videoHeight : srcEl.height;
+    if(!(w > 0 && h > 0)) return;
+    let hasNew;
+    if(!isVideo)        hasNew = true;                      // canvas (retard global diag / fallback)
+    else if(hasRVFC)    hasNew = newVideoFrameAvailable;    // [VIDEO FRAME SYNC]
+    else                hasNew = (video.currentTime !== lastUploadedVideoTime); // repli
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    if(w !== texW || h !== texH){
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, srcEl); // réallocation : dimensions changées
+      texW = w; texH = h;
+    } else if(hasNew){
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, srcEl); // [TEXTURE UPDATE] mise à jour sans réallocation
+    } else {
+      return; // aucune nouvelle frame : la texture actuelle reste valide
+    }
+    if(isVideo){
+      newVideoFrameAvailable = false;
+      lastUploadedVideoTime = video.currentTime;
+    }
+  }
+
+  /* ============ [PERFORMANCE DIAGNOSTIC] + [ADAPTIVE QUALITY] ============ */
+  const headsetDiagEl = document.getElementById('headset-diag');
+  let glRendererStr = '';
+  try{
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    if(dbg) glRendererStr = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '');
+  }catch(e){ console.warn('Renderer WebGL non exposé :', e); }
+
+  function updateHeadsetDiag(){
+    if(!headsetDiagEl) return;
+    if(!expertModeOn()){ if(headsetDiagEl.textContent) headsetDiagEl.textContent=''; return; }
+    const dot = perfLight === 'green' ? '\u{1F7E2}' : perfLight === 'orange' ? '\u{1F7E0}' : '\u{1F534}';
+    headsetDiagEl.textContent =
+      dot + ' DIAGNOSTIC CASQUE\n' +
+      'Caméra réelle : ' + (video.videoWidth||camInfo.w||0) + '×' + (video.videoHeight||camInfo.h||0) +
+        (hasRVFC ? ' · ' + perf.camFps + ' fps' : (camInfo.fps ? ' · ' + camInfo.fps + ' fps (déclaré)' : '')) + '\n' +
+      'Rendu : ' + Math.round(perf.avgFps) + ' fps · ' + perf.avgMs.toFixed(1) + ' ms/frame\n' +
+      'DPR : ' + currentDpr.toFixed(2) + ' · profil : ' + QUALITY_PROFILES[qualityProfile].label +
+        (qualityLocked ? ' (verrouillé)' : '') + ' · taps : ' + currentTaps() + '\n' +
+      (glRendererStr ? 'GPU : ' + glRendererStr + '\n' : '') +
+      'Mains : ' + handDelegate + ' · ' + perf.handRate + '/s — Visages : ' + perf.faceRate + '/s\n' +
+      'Tampon mains : ' + (ring ? 'actif' : 'inactif') +
+        ' · Retard global : ' + (headsetMode ? 'OFF (obligatoire en casque)'
+                                : (globalLatencyActive() ? 'ON (diag Expert)' : 'OFF')) +
+      (camInfo.deviceLabel ? '\nCaméra : ' + camInfo.deviceLabel + (camInfo.focus ? ' · focus ' + camInfo.focus : '') : '') +
+      (directCameraTest ? '\nTEST CAMÉRA DIRECTE ACTIF' : '');
+  }
+
+  /* [ADAPTIVE QUALITY] Adaptation progressive : si le rendu reste < 45 fps
+     pendant > 3 s, UN SEUL palier baisse à la fois — (1) cadence MediaPipe,
+     (2) prélèvements des flous, (3) DPR −0.25 (×2), (4) profil inférieur
+     (Netteté → Équilibré → Fluidité, sauf verrou manuel). Après ≥ 10 s de
+     bonnes performances : remontée d'UN palier. */
+  function stepAdaptDown(t){
+    perf.lastAdapt = t; perf.badSince = t;   // relance le compteur de 3 s
+    if(adaptMpScale < 2){ adaptMpScale = Math.min(2, adaptMpScale + 0.5); return; }
+    if(adaptTapsScale > 0.5){ adaptTapsScale = 0.5; return; }
+    if(adaptDprDrop < 0.5){ adaptDprDrop += 0.25; resize(); hallucShapes = []; scotomasDirty = true; return; }
+    if(!qualityLocked){
+      const i = QUALITY_ORDER.indexOf(qualityProfile);
+      if(i > 0){ setQualityProfile(QUALITY_ORDER[i-1], true); hallucShapes = []; scotomasDirty = true; }
+    }
+  }
+  function stepAdaptUp(t){
+    perf.lastAdapt = t; perf.goodSince = t;
+    if(!qualityLocked){
+      const i = QUALITY_ORDER.indexOf(qualityProfile);
+      if(i < QUALITY_ORDER.indexOf('balanced')){ // remonte au plus vers le profil Équilibré par défaut
+        setQualityProfile(QUALITY_ORDER[i+1], true); hallucShapes = []; scotomasDirty = true; return;
+      }
+    }
+    if(adaptDprDrop > 0){ adaptDprDrop = Math.max(0, adaptDprDrop - 0.25); resize(); hallucShapes = []; scotomasDirty = true; return; }
+    if(adaptTapsScale < 1){ adaptTapsScale = 1; return; }
+    if(adaptMpScale > 1){ adaptMpScale = Math.max(1, adaptMpScale - 0.5); }
+  }
+  function updatePerformance(t){
+    if(t - perf.lastSample < 500) return;                 // échantillonnage 2×/s
+    const span = Math.max(1, t - perf.lastSample);
+    perf.lastSample = t;
+    if(perf.frames > 0){ perf.avgMs = perf.sumDt / perf.frames; perf.avgFps = 1000 / perf.avgMs; }
+    perf.frames = 0; perf.sumDt = 0;
+    perf.camFps  = Math.round((videoFrameCount - perf.lastCamCount) * 1000 / span);
+    perf.lastCamCount = videoFrameCount;
+    perf.handRate = Math.round(perf.handCount * 1000 / span); perf.handCount = 0;
+    perf.faceRate = Math.round(perf.faceCount * 1000 / span); perf.faceCount = 0;
+    perfLight = perf.avgFps >= 50 ? 'green' : (perf.avgFps >= 40 ? 'orange' : 'red');
+    if(autoAdaptOn && !document.hidden && !useFallback){
+      if(perf.avgFps < 45){
+        perf.goodSince = t;
+        if(!perf.badSince) perf.badSince = t;
+        else if(t - perf.badSince > 3000 && t - perf.lastAdapt > 2000) stepAdaptDown(t);
+      } else {
+        perf.badSince = 0;
+        if(!perf.goodSince) perf.goodSince = t;
+        else if(perf.avgFps > 55 && t - perf.goodSince > 10000 && t - perf.lastAdapt > 10000) stepAdaptUp(t);
+      }
+    }
+    updateHeadsetDiag();   // mis à jour 2×/s maximum
+  }
+
+  // [MEDIAPIPE SCHEDULER] alternance stricte : au plus UN détecteur par frame
+  let nextDetector = 'hands';
+
   function frame(t){
     requestAnimationFrame(frame);
+    // [HEADSET PERFORMANCE] Onglet masqué : aucune boucle lourde (rAF est déjà
+    // gelé par le navigateur ; ceci coupe les cas résiduels type PIP/split).
+    if(document.hidden) return;
+    // [PERFORMANCE DIAGNOSTIC] moyenne glissante du temps de frame
+    perf.frames++; perf.sumDt += Math.min(100, Math.max(0.1, t - lastFrameT));
     // [v8] Durée réelle de la frame (bornée) : base de tous les lissages easeTo().
     frameDt = Math.min(50, Math.max(1, t - lastFrameT)); lastFrameT = t;
     const src = useFallback ? fallbackCanvas : video;
@@ -3635,37 +4049,63 @@ function startRenderLoop(useFallback){
     const vw = useFallback?640:(video.videoWidth||16);
     const vh = useFallback?360:(video.videoHeight||9);
 
-    const RING_W = 480;
-    const RING_H = Math.max(1, Math.round(RING_W * vh/vw));
-    ensureRing(RING_W, RING_H);
+    /* [LOW LATENCY] Garde centrale : le retard GLOBAL n'est possible que hors
+       casque, en Expert, hors test direct (voir globalLatencyActive()). En mode
+       casque la texture principale provient TOUJOURS de la frame la plus récente. */
+    const allowGlobalLatency = globalLatencyActive();
 
-    const slot = ring.slots[ring.write];
-    slot.ctx.drawImage(src, 0, 0, RING_W, RING_H);
-    slot.t = t;
-    ring.write = (ring.write+1) % RING_SIZE;
-    ring.filled = Math.min(RING_SIZE, ring.filled+1);
+    /* [LOW LATENCY] Le tampon temporel n'est créé / rempli / consulté QUE si un
+       effet en a réellement besoin : retard local des mains, schéma corporel
+       (source retardée ~70 ms) ou diagnostic Expert du retard global. Sinon :
+       aucun canvas alloué, aucun drawImage, aucune recherche de frame retardée. */
+    const needsHandLatencyBuffer = !useFallback && !directCameraTest && (
+      allowGlobalLatency ||
+      (demencesEnabled && handTrackingReady &&
+        ((state.latency.on && !allowGlobalLatency) || state.bodySchema.on))
+    );
 
-    let uploadSrc = src; // par défaut : temps réel
+    if(needsHandLatencyBuffer){
+      const RING_W = 480;
+      const RING_H = Math.max(1, Math.round(RING_W * vh/vw));
+      ensureRing(RING_W, RING_H);   // canvas créés UNE fois, réutilisés ensuite
+      const slot = ring.slots[ring.write];
+      slot.ctx.drawImage(src, 0, 0, RING_W, RING_H);
+      slot.t = t;
+      ring.write = (ring.write+1) % RING_SIZE;
+      ring.filled = Math.min(RING_SIZE, ring.filled+1);
+    } else if(ring){
+      releaseRing();                // libère la mémoire dès que le tampon est inutile
+    }
+
+    let uploadSrc = src; // par défaut : frame caméra LA PLUS RÉCENTE
     let displayedAge = 0;
-    if(state.latency.on && state.latency.global > 0.5){
-      // Mode global : toute l'image est en retard (effet fort, y compris les mains)
+    if(allowGlobalLatency && ring){
+      // Diagnostic Expert uniquement : toute l'image est en retard (interdit en casque)
       const delayMs = 220 + (state.latency.delay/100) * 700;
       const delayed = findDelayedSlot(t, delayMs);
       if(delayed){ uploadSrc = delayed.canvas; displayedAge = Math.round(t - delayed.t); }
     }
-    // HUD de contrôle : prouve que le retard est réellement appliqué
+    // HUD de contrôle : prouve l'état réel du retard
     if(t - lastHudUpdate > 300){
       lastHudUpdate = t;
       const hud = document.getElementById('lat-hud');
       if(hud){
-        if(state.latency.on && state.latency.global > 0.5) hud.textContent = 'RETARD RÉEL : ' + displayedAge + ' ms';
+        if(allowGlobalLatency) hud.textContent = 'RETARD RÉEL : ' + displayedAge + ' ms (diag Expert)';
+        else if(state.latency.on && state.latency.global > 0.5) hud.textContent = 'Retard global indisponible (casque / hors Expert) — mode mains';
         else if(state.latency.on) hud.textContent = 'MODE MAINS';
         else hud.textContent = '';
       }
     }
 
-    gl.bindTexture(gl.TEXTURE_2D, videoTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uploadSrc);
+    // [TEXTURE UPDATE] + [VIDEO FRAME SYNC] : un seul transfert, seulement si
+    // une nouvelle frame existe ; texture partagée par les deux yeux.
+    updateVideoTextureIfNeeded(uploadSrc);
+
+    // [DIRECT CAMERA TEST] Tous les effets sont temporairement coupés côté
+    // shader ; seuls le champ de vision, la correction optique et la mire
+    // restent actifs (mesure de la latence native du téléphone).
+    const demOnFx = demencesEnabled && !directCameraTest;
+    const visOnFx = visuelEnabled && !directCameraTest;
 
     // Mode casque : duplication monoscopique de l'image pour un support smartphone.
     // Ce n'est pas une vraie stéréoscopie et ce n'est pas du WebXR.
@@ -3694,6 +4134,7 @@ function startRenderLoop(useFallback){
     // [HEADSET LENS CORRECTION] 0 en mode normal (aucun effet) ; en mode
     // casque : 0..30 (slider Expert) → coefficient shader 0..0.15 (modéré).
     gl.uniform1f(U.uLensK, headsetMode ? (headsetLensCorrection / 100) * 0.5 : 0);
+    gl.uniform1f(U.uTaps, currentTaps());   // [ADAPTIVE QUALITY]
     // Écart d'orientation : forcé par FIELD_ROT_MODE, sinon détection auto
     // (basée sur la VUE : en mode casque, chaque œil a sa propre géométrie)
     if(FIELD_ROT_MODE === 'auto'){
@@ -3705,69 +4146,69 @@ function startRenderLoop(useFallback){
     }
     gl.uniform1f(U.uFieldRot, fieldRotIndex);
 
-    gl.uniform1f(U.uBlurOn, (demencesEnabled&&state.blur.on)?1:0);
+    gl.uniform1f(U.uBlurOn, (demOnFx&&state.blur.on)?1:0);
     gl.uniform1f(U.uBlurIntensity, state.blur.intensity/100);
     gl.uniform1f(U.uBlurDiameter, 1-state.blur.diameter/100);
 
-    gl.uniform1f(U.uTunnelOn, (demencesEnabled&&state.tunnel.on)?1:0);
+    gl.uniform1f(U.uTunnelOn, (demOnFx&&state.tunnel.on)?1:0);
     gl.uniform1f(U.uTunnelDiameter, 1-state.tunnel.diameter/100);
     gl.uniform1f(U.uTunnelOpacity, state.tunnel.opacity/100);
     gl.uniform1f(U.uTunnelSoftness, state.tunnel.softness/100);
 
-    gl.uniform1f(U.uContrastOn, (demencesEnabled&&state.contrast.on)?1:0);
+    gl.uniform1f(U.uContrastOn, (demOnFx&&state.contrast.on)?1:0);
     gl.uniform1f(U.uContrastAmt, state.contrast.contrast/100);
     gl.uniform1f(U.uSaturationAmt, state.contrast.saturation/100);
 
-    gl.uniform1f(U.uTintOn, (demencesEnabled&&state.tint.on)?1:0);
+    gl.uniform1f(U.uTintOn, (demOnFx&&state.tint.on)?1:0);
     gl.uniform1f(U.uTintWarmth, state.tint.warmth/100);
     gl.uniform1f(U.uTintHue, state.tint.hue/100);
 
-    gl.uniform1f(U.uUnstableOn, (demencesEnabled&&state.unstable.on)?1:0);
+    gl.uniform1f(U.uUnstableOn, (demOnFx&&state.unstable.on)?1:0);
     gl.uniform1f(U.uUnstableAmp, state.unstable.amplitude/100);
     gl.uniform1f(U.uUnstableSpeed, state.unstable.speed/100);
 
-    gl.uniform1f(U.uDimOn, (demencesEnabled&&state.dim.on)?1:0);
+    gl.uniform1f(U.uDimOn, (demOnFx&&state.dim.on)?1:0);
     gl.uniform1f(U.uDimAmt, state.dim.amount/100);
 
-    gl.uniform1f(U.uFogOn, (demencesEnabled&&state.fog.on)?1:0);
+    gl.uniform1f(U.uFogOn, (demOnFx&&state.fog.on)?1:0);
     gl.uniform1f(U.uFogGhost, state.fog.ghost/100);
     gl.uniform1f(U.uFogSharpness, state.fog.sharpness/100);
 
-    gl.uniform1f(U.uDistortOn, (demencesEnabled&&state.distort.on)?1:0);
+    gl.uniform1f(U.uDistortOn, (demOnFx&&state.distort.on)?1:0);
     gl.uniform1f(U.uDistortAmp, state.distort.amplitude/100);
     gl.uniform1f(U.uDistortSpeed, state.distort.speed/100);
 
-    gl.uniform1f(U.uAcuityOn, (visuelEnabled&&state.acuity.on)?1:0);
+    gl.uniform1f(U.uAcuityOn, (visOnFx&&state.acuity.on)?1:0);
     gl.uniform1f(U.uAcuityAmt, state.acuity.amount/100);
-    gl.uniform1f(U.uPhotoOn, (visuelEnabled&&state.photo.on)?1:0);
+    gl.uniform1f(U.uPhotoOn, (visOnFx&&state.photo.on)?1:0);
     gl.uniform1f(U.uPhotoAmt, state.photo.amount/100);
 
-    gl.uniform1f(U.uDmlaOn, (visuelEnabled&&state.dmla.on)?1:0);
+    gl.uniform1f(U.uDmlaOn, (visOnFx&&state.dmla.on)?1:0);
     // [DMLA v9.9] Inversion supprimée : le curseur "Diamètre" est DIRECT
     // (petite valeur = petite zone, grande valeur = grande zone).
     gl.uniform1f(U.uDmlaDiam, state.dmla.diameter/100);
     gl.uniform1f(U.uDmlaAmt, state.dmla.intensity/100);
-    gl.uniform1f(U.uCataractOn, (visuelEnabled&&state.cataract.on)?1:0);
+    gl.uniform1f(U.uCataractOn, (visOnFx&&state.cataract.on)?1:0);
     gl.uniform1f(U.uCataractAmt, state.cataract.amount/100);
 
-    gl.uniform1f(U.uEyeOn, (visuelEnabled&&state.eye.on)?1:0);
+    gl.uniform1f(U.uEyeOn, (visOnFx&&state.eye.on)?1:0);
     gl.uniform1f(U.uEyeSide, state.eye.side);
     gl.uniform1f(U.uEyeAmt, state.eye.amount/100);
 
-    gl.uniform1f(U.uHemiOn, (visuelEnabled&&state.hemianopsia.on)?1:0);
+    gl.uniform1f(U.uHemiOn, (visOnFx&&state.hemianopsia.on)?1:0);
     gl.uniform1f(U.uHemiSide, state.hemianopsia.side);
     gl.uniform1f(U.uHemiSoft, state.hemianopsia.softness/100);
     gl.uniform1f(U.uHemiOpacity, state.hemianopsia.opacity/100);
 
-    gl.uniform1f(U.uQuadOn, (visuelEnabled&&state.quadranopsia.on)?1:0);
+    gl.uniform1f(U.uQuadOn, (visOnFx&&state.quadranopsia.on)?1:0);
     gl.uniform1f(U.uQuad, state.quadranopsia.quad);
     gl.uniform1f(U.uQuadOpacity, state.quadranopsia.opacity/100);
 
-    gl.uniform1f(U.uGlauOn, (visuelEnabled&&state.glaucoma.on)?1:0);
+    gl.uniform1f(U.uGlauOn, (visOnFx&&state.glaucoma.on)?1:0);
     gl.uniform1f(U.uGlauDiameter, 1-state.glaucoma.diameter/100);
     gl.uniform1f(U.uGlauOpacity, state.glaucoma.opacity/100);
 
-    gl.uniform1f(U.uRpOn, (visuelEnabled&&state.retinitis.on)?1:0);
+    gl.uniform1f(U.uRpOn, (visOnFx&&state.retinitis.on)?1:0);
     gl.uniform1f(U.uRpDiameter, 1-state.retinitis.diameter/100);
     gl.uniform1f(U.uRpDim, state.retinitis.dim/100);
 
@@ -3775,7 +4216,7 @@ function startRenderLoop(useFallback){
     // les valeurs effectivement envoyées au shader restent plafonnées pour
     // éviter un effet trop violent sur téléphone (le rendu reste clairement sévère).
     const safeNys = getSafeNystagmusParams(state.nystagmus);
-    gl.uniform1f(U.uNysOn, (visuelEnabled&&state.nystagmus.on)?1:0);
+    gl.uniform1f(U.uNysOn, (visOnFx&&state.nystagmus.on)?1:0);
     gl.uniform1f(U.uNysDir, safeNys.direction);
     gl.uniform1f(U.uNysAmp, safeNys.amplitude/100);
     gl.uniform1f(U.uNysFreq, safeNys.frequency/100);
@@ -3789,11 +4230,11 @@ function startRenderLoop(useFallback){
     else nystH = (fieldRotIndex !== 0) ? 1 : 0; // auto
     gl.uniform1f(U.uNysAxisH, nystH);
 
-    gl.uniform1f(U.uOverloadOn, (demencesEnabled&&state.overload.on)?1:0);
+    gl.uniform1f(U.uOverloadOn, (demOnFx&&state.overload.on)?1:0);
     gl.uniform1f(U.uOverloadAmt, state.overload.amount/100);
 
     // Démence vasculaire (atteinte neurologique asymétrique)
-    gl.uniform1f(U.uVascOn, (demencesEnabled&&state.vneglect.on)?1:0);
+    gl.uniform1f(U.uVascOn, (demOnFx&&state.vneglect.on)?1:0);
     gl.uniform1f(U.uVascSide, state.vneglect.side);
     gl.uniform1f(U.uVascNeglect,   state.vneglect.neglect/100);
     gl.uniform1f(U.uVascCut,       state.vneglect.cut/100);
@@ -3824,8 +4265,15 @@ function startRenderLoop(useFallback){
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
 
-    detectHands(t);
-    detectFaces(t);
+    /* [MEDIAPIPE SCHEDULER] detectForVideo() est SYNCHRONE : lancer mains ET
+       visages dans la même frame peut bloquer le rendu plusieurs dizaines de
+       ms. Alternance stricte : au plus UN détecteur par frame, APRÈS le dessin
+       WebGL (jamais juste avant), chacun avec sa cadence plafonnée. Les
+       dernières coordonnées valides persistent entre deux analyses. */
+    if(!directCameraTest && !simPaused()){
+      if(nextDetector === 'hands'){ detectHands(t); nextDetector = 'faces'; }
+      else                        { detectFaces(t); nextDetector = 'hands'; }
+    }
 
     // Cible du calque 2D : plein écran, ou canvas "œil" (demi-largeur) en mode casque.
     // Les effets 2D (hallucinations, scotomes, mains, visages) sont dessinés UNE fois
@@ -3838,15 +4286,22 @@ function startRenderLoop(useFallback){
       dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
     }
 
-    drawHalluc();          // efface le calque 2D puis dessine les hallucinations
-    drawScotomas();        // scotomes fixes (rétinopathie)
-    drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
-    drawHandLag(t, ax, ay);// retard de préhension
-    drawBodySchemaHands(t, ax, ay); // schéma corporel perturbé / mains disproportionnées
-    drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
-    drawHandDiagnostic(t, ax, ay);  // [FIX MAINS] diagnostic visuel (mode Expert)
-    drawHeadsetMire();              // [HEADSET CALIBRATION] mire dessinée dans la vue,
-                                    // donc dupliquée exactement comme la caméra dans les 2 yeux
+    if(directCameraTest){
+      // [DIRECT CAMERA TEST] Calques 2D suspendus : vue caméra pure (la mire
+      // de calibration reste disponible pour vérifier le centrage).
+      dfxCtx.clearRect(0, 0, dfxW, dfxH);
+      drawHeadsetMire();
+    } else {
+      drawHalluc();          // efface le calque 2D puis dessine les hallucinations
+      drawScotomas();        // scotomes fixes (rétinopathie)
+      drawDepth(t, ax, ay);  // diplopie / erreur de distance sur les mains
+      drawHandLag(t, ax, ay);// retard de préhension
+      drawBodySchemaHands(t, ax, ay); // schéma corporel perturbé / mains disproportionnées
+      drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
+      drawHandDiagnostic(t, ax, ay);  // [FIX MAINS] diagnostic visuel (mode Expert)
+      drawHeadsetMire();              // [HEADSET CALIBRATION] mire dessinée dans la vue,
+                                      // donc dupliquée exactement comme la caméra dans les 2 yeux
+    }
 
     if(headsetMode){
       // Duplication du calque 2D dans les deux yeux
@@ -3855,8 +4310,12 @@ function startRenderLoop(useFallback){
       if(splitH) fxctx.drawImage(eyeCanvas, 0, Math.floor(fxcanvas.height/2));
       else       fxctx.drawImage(eyeCanvas, Math.floor(fxcanvas.width/2), 0);
     }
+
+    // [ADAPTIVE QUALITY] + [PERFORMANCE DIAGNOSTIC] (échantillonné 2×/s)
+    updatePerformance(t);
   }
   requestAnimationFrame(frame);
+  requestWakeLock();   // [HEADSET PERFORMANCE] écran maintenu allumé en simulation
 }
 
 applyStagePreset(15);
@@ -4378,6 +4837,47 @@ applyStagePreset(15);
     syncMireBtn();
   });
   syncMireBtn();
+
+  /* --- [ADAPTIVE QUALITY] Sélecteur « Qualité du mode casque »
+     (Formateur + Expert). Un choix manuel VERROUILLE le profil : l'adaptation
+     automatique continue d'ajuster MediaPipe / flous / DPR, mais ne change
+     plus le profil lui-même. --- */
+  window.syncQualityUI = function(){
+    $$('.hq-btn').forEach(b => b.classList.toggle('active', b.dataset.q === qualityProfile));
+  };
+  $$('.hq-btn').forEach(b => b.addEventListener('click', () => setQualityProfile(b.dataset.q, false)));
+  window.syncQualityUI();
+
+  /* --- [ADAPTIVE QUALITY] Interrupteur Expert « Adaptation automatique »
+     (activé par défaut). --- */
+  const adaptToggle = $('#auto-adapt-toggle');
+  if(adaptToggle) adaptToggle.addEventListener('change', e => { autoAdaptOn = e.target.checked; });
+
+  /* --- [DIRECT CAMERA TEST] Bouton Expert : caméra la plus récente affichée
+     directement (effets, MediaPipe, calques 2D et tampon suspendus ; champ de
+     vision et correction optique conservés). Aucune valeur de `state` n'est
+     modifiée → la désactivation restaure EXACTEMENT l'état précédent. --- */
+  const dcBtn = $('#btn-direct-cam');
+  function syncDirectCamBtn(){
+    if(!dcBtn) return;
+    dcBtn.textContent = directCameraTest ? 'Quitter le test caméra directe' : 'Test caméra directe';
+    dcBtn.classList.toggle('on', directCameraTest);
+  }
+  if(dcBtn) dcBtn.addEventListener('click', () => {
+    directCameraTest = !directCameraTest;            // variable moteur globale
+    syncDirectCamBtn();
+  });
+  syncDirectCamBtn();
+
+  /* --- [HEADSET PERFORMANCE] Wake Lock lié au cycle de simulation --- */
+  // Greffé via les boutons existants (aucun changement du flux de simulation) :
+  // acquis au lancement / à la reprise, relâché à la pause et à la sortie.
+  $('#btn-start').addEventListener('click', ()=> requestWakeLock());
+  $('#btn-skip').addEventListener('click',  ()=> requestWakeLock());
+  $('#btn-resume').addEventListener('click',()=> requestWakeLock());
+  $('#btn-pause').addEventListener('click', ()=> releaseWakeLock());
+  $('#btn-quit').addEventListener('click',  ()=> releaseWakeLock());
+  $('#btn-pause-quit').addEventListener('click', ()=> releaseWakeLock());
 
   // Boutons de sim
   $('#btn-start').addEventListener('click', startSim);
