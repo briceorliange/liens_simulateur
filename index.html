@@ -405,6 +405,18 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
 #btn-headset.on{background:color-mix(in srgb, var(--accent) 24%, transparent); border-color:var(--accent); color:#fff;}
 /* Note confort casque : réservée au mode Expert */
 #panel:not(.mode-expert) .headset-note{display:none;}
+/* [HEADSET CALIBRATION] Carte réglages casque : champ de vision visible en
+   Formateur + Expert ; correction des lentilles et mire réservées à l'Expert. */
+#panel:not(.mode-expert) #headset-card .expert-only{display:none;}
+.hfov-select{display:flex; gap:6px; margin-top:10px;}
+.hfov-btn{flex:1; font-size:12.5px; font-weight:500; padding:10px 4px; color:var(--muted); background:var(--surface-2);
+  border:1px solid var(--line); border-radius:10px; cursor:pointer; transition:.15s;}
+.hfov-btn.active{background:color-mix(in srgb, var(--mode) 16%, transparent); color:var(--text); border-color:var(--mode);}
+#headset-card input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:5px; border-radius:3px;
+  background:var(--surface-3); outline:none; margin:8px 0 6px;}
+#headset-card input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+  background:var(--text); border:3px solid var(--mode); cursor:pointer;}
+#btn-headset-mire.on{background:color-mix(in srgb, var(--mode) 18%, transparent); border-color:var(--mode);}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important; animation-duration:.01ms !important;}}
 </style>
@@ -450,7 +462,7 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
         <span class="mc-go">›</span>
       </button>
     </div>
-    <div class="home-foot">v9.12 · DMLA sévère : warp basse fréquence lissé + plafond de déplacement (anti-repli/duplication), attraction atténuée au bord, domaines de bruit tournés (anti-cadre), léger/modéré préservés</div>
+    <div class="home-foot">v9.13 · Mode casque : cadrage « contain » (champ caméra préservé, image moins grossie), réglage du champ de vision 100–170 % (défaut 135 %), calibration rapide Proche/Standard/Large, mire de calibration et correction optionnelle des lentilles (Expert)</div>
   </section>
 
   <!-- ===== ÉCRAN DÉMO — Pupitre simplifié (cumul démence + trouble visuel) ===== -->
@@ -642,6 +654,28 @@ body.in-sim.headset-mode.headset-hud-hidden::before{
     <div class="sci-note headset-note">
       <span class="sci-ico" aria-hidden="true">◫</span>
       <p><b>Mode casque :</b> duplique l'image pour un support smartphone. Il ne s'agit pas d'une vraie stéréoscopie ni d'un mode WebXR. Tester sur courte durée et vérifier que la caméra arrière n'est pas obstruée par le casque.</p>
+    </div>
+
+    <!-- [HEADSET CALIBRATION] Réglages du mode casque.
+         Le champ de vision est visible en Formateur ET Expert ; la correction
+         des lentilles et la mire sont réservées au mode Expert. Ces réglages
+         n'agissent QUE lorsque le mode casque est activé. -->
+    <div class="setup-card" id="headset-card">
+      <p class="sc-lbl">Champ de vision casque · <span id="headset-fov-readout">135 %</span></p>
+      <input type="range" id="headset-fov-range" min="100" max="170" value="135">
+      <div class="stage-labels"><span>100 %</span><span>135 %</span><span>170 %</span></div>
+      <div class="hfov-select">
+        <button class="hfov-btn" data-fov="115">Proche</button>
+        <button class="hfov-btn active" data-fov="135">Standard</button>
+        <button class="hfov-btn" data-fov="155">Large</button>
+      </div>
+      <div class="expert-only">
+        <p class="sc-lbl" style="margin-top:12px;">Correction des lentilles · <span id="headset-lens-readout">0</span></p>
+        <input type="range" id="headset-lens-range" min="0" max="30" value="0">
+        <div class="setup-actions">
+          <button id="btn-headset-mire">Afficher la mire casque</button>
+        </div>
+      </div>
     </div>
 
     <!-- Carte configuration démence (type + stade) -->
@@ -1440,14 +1474,121 @@ function ensureEyeCanvas(w, h){
   if(eyeCanvas.height !== h) eyeCanvas.height = h;
 }
 
-/* Aspect COVER générique : valable pour la vue plein écran ou une demi-vue */
-function computeAspectFix(viewW, viewH, videoW, videoH){
-  const videoAR = videoW / videoH;
+/* [HEADSET FOV] Champ de vision du mode casque.
+   N'agit QUE lorsque headsetMode === true.
+   1.00 = cadrage « contain » strict · 1.20 = léger recul · 1.35 = défaut ·
+   1.50 = champ plus large · 1.70 = recul maximal de test.
+   Plus la valeur est élevée, plus on voit de champ caméra → grossissement
+   apparent réduit à travers les lentilles du casque. */
+let headsetFovScale = 1.35;
+
+/* [HEADSET LENS CORRECTION] Pré-déformation en barillet OPTIONNELLE (0 = aucune).
+   Valeur utilisateur 0..30 (slider Expert), convertie en coefficient shader.
+   Sert uniquement à tester différents supports de smartphone. */
+let headsetLensCorrection = 0;
+
+/* [HEADSET CALIBRATION] Mire de calibration du casque (bouton Expert). */
+let headsetMireOn = false;
+
+/* [HEADSET FIT] Cadrage caméra → vue.
+   Deux modes explicites :
+   - 'cover'   : l'image REMPLIT la vue mais RECADRE le flux caméra
+                 (comportement historique, conservé à l'identique hors casque) ;
+   - 'contain' : l'image CONSERVE TOUT le champ caméra, sans étirement ni
+                 déformation, quitte à laisser des bandes noires (létterbox) —
+                 utilisé en mode casque pour élargir le champ perçu.
+   - fovScale  : agrandit la portion de caméra visible (mode casque uniquement).
+     Les coordonnées hors flux sont gérées par sampleVideo() → noir propre.
+   Les valeurs ax/ay sont MÉMORISÉES (cache) et recalculées uniquement quand
+   la vue, la vidéo, le mode ou le fovScale changent (aucune allocation par frame). */
+const _aspectCache = { key:'', ax:1, ay:1 };
+function computeAspectFix(viewW, viewH, videoW, videoH, fitMode = 'cover', fovScale = 1){
+  const key = viewW + 'x' + viewH + '|' + videoW + 'x' + videoH + '|' + fitMode + '|' + fovScale;
+  if(_aspectCache.key === key) return _aspectCache;
+  const videoAR  = videoW / videoH;
   const canvasAR = viewW / viewH;
   let ax = 1, ay = 1;
-  if(canvasAR > videoAR) ay = videoAR / canvasAR;
-  else ax = canvasAR / videoAR;
-  return { ax, ay };
+  if(fitMode === 'contain'){
+    // [HEADSET FIT] contain : tout le champ caméra visible, ratio préservé,
+    // image centrée, bandes noires acceptées. Le même facteur est ensuite
+    // appliqué aux DEUX axes (fovScale) → aucun zoom différent selon l'axe.
+    if(canvasAR > videoAR) ax = canvasAR / videoAR;
+    else                   ay = videoAR / canvasAR;
+    ax *= fovScale;
+    ay *= fovScale;
+  } else {
+    // cover : comportement historique STRICTEMENT inchangé (mode normal).
+    if(canvasAR > videoAR) ay = videoAR / canvasAR;
+    else                   ax = canvasAR / videoAR;
+  }
+  _aspectCache.key = key; _aspectCache.ax = ax; _aspectCache.ay = ay;
+  return _aspectCache;
+}
+
+/* [HEADSET CALIBRATION] Mire de calibration : dessinée dans la VUE courante
+   (canvas « œil » en mode casque → dupliquée exactement comme le rendu caméra
+   dans les deux yeux, quelle que soit l'orientation). Elle recouvre la caméra
+   d'un voile sombre sans modifier les effets ni l'état de la simulation.
+   Permet de vérifier : centrage du téléphone, alignement avec les lentilles,
+   niveau de grossissement, netteté au centre, déformation en périphérie. */
+function drawHeadsetMire(){
+  if(!headsetMireOn) return;
+  const ctx = dfxCtx, w = dfxW, h = dfxH;
+  if(!w || !h) return;
+  const cx = w / 2, cy = h / 2;
+  const m = Math.min(w, h);
+  ctx.save();
+  // Voile sombre : la caméra reste légèrement visible derrière la mire
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, w, h);
+  // Grille régulière (pas fixe, centrée)
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = Math.max(1, m * 0.0015);
+  const step = m / 8;
+  ctx.beginPath();
+  for(let x = cx % step; x <= w; x += step){ ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  for(let y = cy % step; y <= h; y += step){ ctx.moveTo(0, y); ctx.lineTo(w, y); }
+  ctx.stroke();
+  // Lignes principales verticale + horizontale
+  ctx.strokeStyle = 'rgba(120,210,255,0.85)';
+  ctx.lineWidth = Math.max(1.5, m * 0.003);
+  ctx.beginPath();
+  ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
+  ctx.moveTo(0, cy); ctx.lineTo(w, cy);
+  ctx.stroke();
+  // Cercle centré dans la demi-vue
+  ctx.strokeStyle = 'rgba(0,230,160,0.9)';
+  ctx.beginPath(); ctx.arc(cx, cy, m * 0.32, 0, Math.PI * 2); ctx.stroke();
+  // Croix au centre
+  const c = m * 0.05;
+  ctx.strokeStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(cx - c, cy); ctx.lineTo(cx + c, cy);
+  ctx.moveTo(cx, cy - c); ctx.lineTo(cx, cy + c);
+  ctx.stroke();
+  // Repères de bord (ticks au milieu des bords + équerres dans les coins)
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  const tk = m * 0.03, cn = m * 0.06;
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);      ctx.lineTo(cx, tk);
+  ctx.moveTo(cx, h);      ctx.lineTo(cx, h - tk);
+  ctx.moveTo(0, cy);      ctx.lineTo(tk, cy);
+  ctx.moveTo(w, cy);      ctx.lineTo(w - tk, cy);
+  ctx.moveTo(0, cn);      ctx.lineTo(0, 0);      ctx.lineTo(cn, 0);
+  ctx.moveTo(w - cn, 0);  ctx.lineTo(w, 0);      ctx.lineTo(w, cn);
+  ctx.moveTo(0, h - cn);  ctx.lineTo(0, h);      ctx.lineTo(cn, h);
+  ctx.moveTo(w - cn, h);  ctx.lineTo(w, h);      ctx.lineTo(w, h - cn);
+  ctx.stroke();
+  // Textes : « CENTRE » + valeur actuelle du champ de vision
+  const fs = Math.max(12, Math.round(m * 0.045));
+  ctx.textAlign = 'center';
+  ctx.font = '600 ' + fs + 'px system-ui, sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('CENTRE', cx, cy + c + fs * 1.4);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '500 ' + Math.round(fs * 0.85) + 'px system-ui, sans-serif';
+  ctx.fillText('Champ de vision : ' + Math.round(headsetFovScale * 100) + ' %', cx, cy + c + fs * 2.6);
+  ctx.restore();
 }
 
 function setHeadsetMode(on){
@@ -1523,6 +1664,10 @@ out vec4 outColor;
 uniform sampler2D uTex;
 uniform float uTime;
 uniform vec2  uAspectFix; // scale to correct video aspect vs canvas
+// [HEADSET LENS CORRECTION] Coefficient de pré-déformation en barillet.
+// 0.0 = aucune correction (mode normal et défaut). Appliqué séparément dans
+// chaque demi-vue (vUv est local à chaque viewport œil), symétrique et modéré.
+uniform float uLensK;
 
 // Flou central
 uniform float uBlurOn, uBlurIntensity, uBlurDiameter;
@@ -1777,6 +1922,17 @@ vec3 sampleVisualBase(vec2 coord){
 
 void main(){
   vec2 uv = vUv;
+
+  // [HEADSET LENS CORRECTION] Très légère pré-déformation en barillet,
+  // appliquée AVANT tout le pipeline : l'image composée entière (caméra +
+  // effets) est pré-déformée de façon symétrique, centrée dans CHAQUE œil
+  // (vUv est local au viewport de chaque demi-vue). Sans effet quand
+  // uLensK == 0 (mode normal et valeur par défaut).
+  if(uLensK > 0.0005){
+    vec2 dL = uv - 0.5;
+    uv = 0.5 + dL * (1.0 + uLensK * dot(dL, dL));
+  }
+
   vec2 center = vec2(0.5);
   float dist = distance(uv, center);
 
@@ -2303,7 +2459,7 @@ function tex(){
 const videoTex = tex();
 
 const U = {};
-['uTime','uAspectFix','uBlurOn','uBlurIntensity','uBlurDiameter',
+['uTime','uAspectFix','uLensK','uBlurOn','uBlurIntensity','uBlurDiameter',
  'uTunnelOn','uTunnelDiameter','uTunnelOpacity','uTunnelSoftness',
  'uContrastOn','uContrastAmt','uSaturationAmt',
  'uTintOn','uTintWarmth','uTintHue',
@@ -3522,14 +3678,22 @@ function startRenderLoop(useFallback){
     const viewW = headsetMode ? (splitH ? glcanvas.width : halfW) : glcanvas.width;
     const viewH = headsetMode ? (splitH ? halfH : glcanvas.height) : glcanvas.height;
 
-    // COVER : l'image remplit toute la vue (léger recadrage) au lieu de laisser
-    // des bandes létterbox sur les bords (source des bavures en haut/bas).
-    // L'aspect est calculé sur la vue (demi-largeur en mode casque).
-    const { ax, ay } = computeAspectFix(viewW, viewH, vw, vh);
+    // [HEADSET FIT] Cadrage :
+    // - mode normal : COVER (comportement historique strictement inchangé) ;
+    // - mode casque : CONTAIN + headsetFovScale → tout le champ caméra est
+    //   préservé (bandes noires acceptées), grossissement apparent réduit.
+    // L'aspect est calculé sur la vue (demi-vue en mode casque) et MÉMORISÉ
+    // par computeAspectFix (recalcul uniquement si un paramètre change).
+    const { ax, ay } = computeAspectFix(viewW, viewH, vw, vh,
+                                        headsetMode ? 'contain' : 'cover',
+                                        headsetMode ? headsetFovScale : 1);
 
     gl.useProgram(prog);
     gl.uniform1f(U.uTime, t*0.001);
     gl.uniform2f(U.uAspectFix, ax, ay);
+    // [HEADSET LENS CORRECTION] 0 en mode normal (aucun effet) ; en mode
+    // casque : 0..30 (slider Expert) → coefficient shader 0..0.15 (modéré).
+    gl.uniform1f(U.uLensK, headsetMode ? (headsetLensCorrection / 100) * 0.5 : 0);
     // Écart d'orientation : forcé par FIELD_ROT_MODE, sinon détection auto
     // (basée sur la VUE : en mode casque, chaque œil a sa propre géométrie)
     if(FIELD_ROT_MODE === 'auto'){
@@ -3681,6 +3845,8 @@ function startRenderLoop(useFallback){
     drawBodySchemaHands(t, ax, ay); // schéma corporel perturbé / mains disproportionnées
     drawFaces(t, ax, ay);  // flou (loin) / déformation (près) des visages
     drawHandDiagnostic(t, ax, ay);  // [FIX MAINS] diagnostic visuel (mode Expert)
+    drawHeadsetMire();              // [HEADSET CALIBRATION] mire dessinée dans la vue,
+                                    // donc dupliquée exactement comme la caméra dans les 2 yeux
 
     if(headsetMode){
       // Duplication du calque 2D dans les deux yeux
@@ -4059,6 +4225,15 @@ applyStagePreset(15);
   }
   /* Lance la simulation depuis le pupitre : applique le cumul puis passe en vue caméra */
   function demoStart(){
+    // [HEADSET FOV] Mode Démonstration : valeur par défaut 1.35 conservée
+    // automatiquement (aucun réglage casque au pupitre), correction des
+    // lentilles désactivée, mire coupée. L'UI du panneau reste synchronisée.
+    applyHeadsetFov(135);
+    headsetLensCorrection = 0;
+    const _lr = $('#headset-lens-range');   if(_lr) _lr.value = 0;
+    const _lo = $('#headset-lens-readout'); if(_lo) _lo.textContent = '0';
+    headsetMireOn = false;
+    syncMireBtn();
     applyCombinedPreset(appState);
     ensureCamera();
     const panel = $('#panel');
@@ -4163,6 +4338,46 @@ applyStagePreset(15);
   window.syncHeadsetUI = syncHeadsetUI;   // appelée par setHeadsetMode() (moteur)
   $('#btn-demo-headset').addEventListener('click', ()=> setHeadsetMode(!headsetMode));
   $('#btn-headset').addEventListener('click', ()=> setHeadsetMode(!headsetMode));
+
+  /* --- [HEADSET FOV] Réglage « Champ de vision casque » (Formateur + Expert).
+     Slider 100..170 → headsetFovScale = valeur/100 (moteur), mise à jour en
+     direct. N'agit que lorsque headsetMode === true (géré côté moteur). --- */
+  const hfovRange   = $('#headset-fov-range');
+  const hfovReadout = $('#headset-fov-readout');
+  function applyHeadsetFov(v, fromSlider){
+    v = Math.max(100, Math.min(170, Math.round(v)));
+    headsetFovScale = v / 100;                       // variable moteur globale
+    if(hfovReadout) hfovReadout.textContent = v + ' %';
+    if(hfovRange && !fromSlider) hfovRange.value = v;
+    // [HEADSET CALIBRATION] Les 3 boutons reflètent la valeur : sélection
+    // uniquement en cas de correspondance EXACTE, sinon aucun n'est actif.
+    $$('.hfov-btn').forEach(b => b.classList.toggle('active', +b.dataset.fov === v));
+  }
+  if(hfovRange) hfovRange.addEventListener('input', e => applyHeadsetFov(+e.target.value, true));
+  $$('.hfov-btn').forEach(b => b.addEventListener('click', () => applyHeadsetFov(+b.dataset.fov)));
+
+  /* --- [HEADSET LENS CORRECTION] Slider Expert 0..30, défaut 0 (désactivée).
+     Très légère pré-déformation en barillet, mode casque uniquement. --- */
+  const hlensRange   = $('#headset-lens-range');
+  const hlensReadout = $('#headset-lens-readout');
+  if(hlensRange) hlensRange.addEventListener('input', e => {
+    headsetLensCorrection = +e.target.value;         // variable moteur globale
+    if(hlensReadout) hlensReadout.textContent = e.target.value;
+  });
+
+  /* --- [HEADSET CALIBRATION] Mire de calibration du casque (bouton Expert).
+     Ne modifie ni les effets ni l'état de la simulation. --- */
+  const mireBtn = $('#btn-headset-mire');
+  function syncMireBtn(){
+    if(!mireBtn) return;
+    mireBtn.textContent = headsetMireOn ? 'Masquer la mire casque' : 'Afficher la mire casque';
+    mireBtn.classList.toggle('on', headsetMireOn);
+  }
+  if(mireBtn) mireBtn.addEventListener('click', () => {
+    headsetMireOn = !headsetMireOn;                  // variable moteur globale
+    syncMireBtn();
+  });
+  syncMireBtn();
 
   // Boutons de sim
   $('#btn-start').addEventListener('click', startSim);
