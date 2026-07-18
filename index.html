@@ -697,6 +697,10 @@ body.headset-mode.headset-hud-hidden #sim-hud{display:none !important;}
       <div class="expert-only">
         <p class="sc-lbl" style="margin-top:12px;">Correction des lentilles · <span id="headset-lens-readout">0</span></p>
         <input type="range" id="headset-lens-range" min="0" max="30" value="0">
+        <!-- [HEADSET SHARPNESS] Accentuation de l'image caméra (casque uniquement ;
+             coupée automatiquement quand un effet clinique adoucissant est actif) -->
+        <p class="sc-lbl" style="margin-top:12px;">Accentuation netteté casque · <span id="headset-sharpen-readout">40</span></p>
+        <input type="range" id="headset-sharpen-range" min="0" max="100" value="40">
         <!-- [ADAPTIVE QUALITY] Interrupteur Expert « Adaptation automatique » (ON par défaut) -->
         <label class="adapt-row"><input type="checkbox" id="auto-adapt-toggle" checked> Adaptation automatique</label>
         <div class="setup-actions">
@@ -1514,6 +1518,15 @@ async function startCamera(profileName){
   cameraStream = stream;
   const track = stream.getVideoTracks()[0];
   readTrackSettings(track);
+  /* [CAMERA PROFILE v2] Certains téléphones accordent 720p malgré ideal:1080.
+     Seconde tentative explicite (advanced) — non fatale en cas de refus. */
+  if(profileName !== 'fluid' && camInfo.w && camInfo.w < 1500){
+    try{
+      await track.applyConstraints({ width:{ideal:1920}, height:{ideal:1080},
+                                     advanced:[{ width:1920, height:1080 }] });
+      readTrackSettings(track);
+    }catch(e){ console.warn('1080p non accordé par le téléphone :', e); }
+  }
   applyAdvancedCameraSettings(track).then(()=> readTrackSettings(track)); // jamais bloquant
   video.srcObject = stream;
   await video.play();
@@ -1643,9 +1656,14 @@ let headsetMireOn = false;
    bien plus gênante qu'une image un peu moins définie). Jamais de DPR > 2.5,
    jamais de 4K. */
 const QUALITY_PROFILES = {
-  fluid:    { maxDpr:1.5, taps:4, mpScale:1.6, camera:'fluid',    label:'Fluidité'  },
-  balanced: { maxDpr:2.0, taps:8, mpScale:1.0, camera:'balanced', label:'Équilibré' },
-  sharp:    { maxDpr:2.5, taps:8, mpScale:1.0, camera:'sharp',    label:'Netteté'   }
+  /* [ADAPTIVE QUALITY v2] DPR relevés : sur un écran DPR 3, un plafond de 2.0
+     rendait ~67 % de la résolution native → pixels et interpolations visibles
+     sous les lentilles grossissantes. Le calque 2D étant désormais découplé
+     (fxDpr ≤ 1.5) et MediaPipe analysé en 320 px, le WebGL peut monter plus
+     haut sans perdre en fluidité. Plafond absolu inchangé : 2.5, pas de 4K. */
+  fluid:    { maxDpr:1.6,  taps:4, mpScale:1.6, camera:'fluid',    label:'Fluidité'  },
+  balanced: { maxDpr:2.25, taps:8, mpScale:1.0, camera:'balanced', label:'Équilibré' },
+  sharp:    { maxDpr:2.5,  taps:8, mpScale:1.0, camera:'sharp',    label:'Netteté'   }
 };
 const QUALITY_ORDER = ['fluid','balanced','sharp'];
 let qualityProfile = 'balanced';   // défaut : Équilibré (Démonstration incluse)
@@ -1655,6 +1673,7 @@ let adaptMpScale   = 1;            // palier 1 : ralentit MediaPipe (1 → 1.5 �
 let adaptTapsScale = 1;            // palier 2 : 1 = taps du profil, 0.5 = flous allégés
 let adaptDprDrop   = 0;            // palier 3 : baisse du DPR par pas de 0.25
 let directCameraTest = false;      // [DIRECT CAMERA TEST] variable moteur globale
+let headsetSharpen   = 40;         // [HEADSET SHARPNESS] 0..100 (slider Expert), casque uniquement
 let perfLight = 'green';           // voyant : green / orange / red
 let currentDpr = 1;
 
@@ -1800,14 +1819,10 @@ function getTargetDpr(){
   const prof = QUALITY_PROFILES[qualityProfile];
   let dpr = Math.min(window.devicePixelRatio || 1, prof.maxDpr);
   dpr = Math.max(1, dpr - adaptDprDrop);
-  const camW = (typeof video !== 'undefined' && video && video.videoWidth) ? video.videoWidth : 0;
-  if(camW > 0){
-    // Largeur CSS réellement couverte par la caméra : demi-écran par œil
-    // uniquement quand la découpe est gauche/droite (écran paysage).
-    const perEyeCss = (headsetMode && innerWidth >= innerHeight) ? innerWidth / 2 : innerWidth;
-    const camCap = (camW * 1.35) / Math.max(1, perEyeCss);
-    dpr = Math.min(dpr, Math.max(1, camCap));
-  }
+  // [ADAPTIVE QUALITY v2] Plancher en casque : sous les lentilles, descendre
+  // sous 1.5 rend l'image inutilisable ; l'adaptation agit d'abord sur
+  // MediaPipe et les flous, jamais au point de dégrader autant la netteté.
+  if(headsetMode) dpr = Math.max(1.5, dpr);
   return Math.min(2.5, Math.max(1, dpr));
 }
 
@@ -1815,12 +1830,19 @@ function resize(){
   const dpr = getTargetDpr();
   currentDpr = dpr;
   const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
-  // [ADAPTIVE QUALITY] Les canvas ne sont redimensionnés que si la cible
-  // change réellement (jamais à chaque frame ; un resize efface le canvas).
-  [glcanvas, fxcanvas].forEach(c=>{
-    if(c.width !== w)  c.width  = w;
-    if(c.height !== h) c.height = h;
-  });
+  /* [HEADSET PERFORMANCE v2] Résolutions DÉCOUPLÉES :
+     - glcanvas (caméra + shader) : DPR complet du profil → netteté maximale ;
+     - fxcanvas (calque 2D) : plafonné à 1.5 — ses contenus sont doux par
+       nature (patchs fondus, hallucinations floutées, scotomes) ; l'étirement
+       CSS est invisible et divise par ~2 le coût de composition.
+     Les coordonnées 2D passent toutes par dfxW/dfxH → aucun autre changement. */
+  const fxDpr = Math.min(dpr, 1.5);
+  const fw = Math.round(innerWidth * fxDpr), fh = Math.round(innerHeight * fxDpr);
+  // Redimensionnés UNIQUEMENT si la cible change (jamais à chaque frame).
+  if(glcanvas.width !== w)  glcanvas.width  = w;
+  if(glcanvas.height !== h) glcanvas.height = h;
+  if(fxcanvas.width !== fw)  fxcanvas.width  = fw;
+  if(fxcanvas.height !== fh) fxcanvas.height = fh;
   if(gl) gl.viewport(0,0,glcanvas.width,glcanvas.height);
   dfxCtx = fxctx; dfxW = fxcanvas.width; dfxH = fxcanvas.height;
   // Axe de découpe du mode casque : toujours le long du GRAND axe de l'écran.
@@ -1841,8 +1863,11 @@ function setQualityProfile(name, fromAuto){
   if(!fromAuto){
     qualityLocked = true;
     adaptMpScale = 1; adaptTapsScale = 1; adaptDprDrop = 0;
+    // [ADAPTIVE QUALITY v2] La caméra ne change de définition que sur choix
+    // MANUEL : l'adaptation automatique ne dégrade jamais le flux caméra
+    // (une chute soudaine de résolution est plus gênante qu'un DPR réduit).
+    applyCameraProfile(QUALITY_PROFILES[name].camera);  // à chaud, non fatal
   }
-  applyCameraProfile(QUALITY_PROFILES[name].camera);  // à chaud, non fatal
   resize();                                           // DPR + viewport WebGL
   if(typeof window.onDprLayersDirty === 'function') window.onDprLayersDirty();
   if(typeof window.syncQualityUI === 'function') window.syncQualityUI();
@@ -1920,6 +1945,14 @@ uniform float uLensK;
 // profil de qualité / l'adaptation automatique). Répartition angulaire
 // régulière → l'apparence clinique reste très proche, le coût GPU est divisé.
 uniform float uTaps;
+/* [HEADSET SHARPNESS] Accentuation légère (unsharp mask 4 prélèvements) de
+   l'image caméra de base, réservée au mode casque. Compense l'adoucissement
+   cumulé caméra → texture LINEAR → lentilles grossissantes. uSharpen est mis
+   à 0 côté JS dès qu'un effet clinique adoucissant est actif (flou central,
+   acuité, cataracte, DMLA, brouillard) : le rendu pathologique validé n'est
+   JAMAIS re-netteté. uSharpenPx = 1/dimensions de la texture caméra. */
+uniform float uSharpen;
+uniform vec2  uSharpenPx;
 
 // Flou central
 uniform float uBlurOn, uBlurIntensity, uBlurDiameter;
@@ -1980,7 +2013,17 @@ vec3 sampleVideo(vec2 uv){
   vec2 c = fitUv(uv);
   // Hors cadre → noir (létterbox propre) au lieu d'étirer le pixel du bord (bavure)
   if(c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0) return vec3(0.0);
-  return texture(uTex, c).rgb;
+  vec3 col = texture(uTex, c).rgb;
+  // [HEADSET SHARPNESS] 4 prélèvements croisés à 1 texel : coût quasi nul
+  // (n'est payé que lorsque uSharpen > 0, c.-à-d. casque sans effet adoucissant).
+  if(uSharpen > 0.001){
+    vec3 nb = texture(uTex, c + vec2(uSharpenPx.x, 0.0)).rgb
+            + texture(uTex, c - vec2(uSharpenPx.x, 0.0)).rgb
+            + texture(uTex, c + vec2(0.0, uSharpenPx.y)).rgb
+            + texture(uTex, c - vec2(0.0, uSharpenPx.y)).rgb;
+    col = clamp(col + (col - nb * 0.25) * uSharpen, 0.0, 1.0);
+  }
+  return col;
 }
 
 // [DMLA v9] Bruit procédural léger (value noise 2D, très bon marché sur mobile).
@@ -2715,7 +2758,7 @@ function tex(){
 const videoTex = tex();
 
 const U = {};
-['uTime','uAspectFix','uLensK','uTaps','uBlurOn','uBlurIntensity','uBlurDiameter',
+['uTime','uAspectFix','uLensK','uTaps','uSharpen','uSharpenPx','uBlurOn','uBlurIntensity','uBlurDiameter',
  'uTunnelOn','uTunnelDiameter','uTunnelOpacity','uTunnelSoftness',
  'uContrastOn','uContrastAmt','uSaturationAmt',
  'uTintOn','uTintWarmth','uTintHue',
@@ -3058,6 +3101,30 @@ function startRenderLoop(useFallback){
   let handReinitInProgress = false;
   let handLastTs = -1;                 // dernier horodatage transmis (strictement croissant)
   let lastVideoTime = -1;              // dernière position vidéo réellement analysée
+
+  /* [MEDIAPIPE SCHEDULER v2] Entrée de détection RÉDUITE (320 px de large,
+     canvas unique réutilisé, 1 drawImage < 0,5 ms par analyse) :
+     - le pré-traitement MediaPipe ne manipule plus la frame 1080p complète →
+       l'à-coup par analyse passe de ~20-40 ms à quelques ms (fin des
+       micro-saccades ressenties comme de la nausée) ;
+     - largement suffisant : blaze_face travaille en 128 px interne, les mains
+       en 224 px ; les repères restent normalisés 0..1 → aucun autre changement. */
+  const DETECT_W = 320;
+  const detectCanvas = document.createElement('canvas');
+  const detectCtx = detectCanvas.getContext('2d');
+  let detectCanvasTime = -1;
+  function getDetectFrame(){
+    const dvw = video.videoWidth, dvh = video.videoHeight;
+    if(!(dvw > 0 && dvh > 0)) return null;
+    const dh = Math.max(1, Math.round(DETECT_W * dvh / dvw));
+    if(detectCanvas.width !== DETECT_W) detectCanvas.width = DETECT_W;
+    if(detectCanvas.height !== dh) detectCanvas.height = dh;
+    if(detectCanvasTime !== video.currentTime){
+      detectCtx.drawImage(video, 0, 0, DETECT_W, dh);
+      detectCanvasTime = video.currentTime;
+    }
+    return detectCanvas;
+  }
   let handFrameAnalyzed = false;       // diagnostic : dernier appel valide
   let handBoxes = [];
   let handLandmarksList = [];          // 21 points par main, pour le diagnostic visuel
@@ -3218,7 +3285,9 @@ function startRenderLoop(useFallback){
       if(timestampMs <= handLastTs) timestampMs = handLastTs + 1;
       handLastTs = timestampMs;
 
-      const res = handLandmarker.detectForVideo(video, timestampMs);
+      const dsrc = getDetectFrame();   // [MEDIAPIPE SCHEDULER v2] entrée 320 px
+      if(!dsrc) return;
+      const res = handLandmarker.detectForVideo(dsrc, timestampMs);
       handErrorStreak = 0;
       handFrameAnalyzed = true;
       perf.handCount++;   // [PERFORMANCE DIAGNOSTIC] cadence réelle
@@ -3400,9 +3469,12 @@ function startRenderLoop(useFallback){
     if(t - lastFaceDetect < faceInterval) return;
     lastFaceDetect = t;
     try{
-      const res = faceDetector.detectForVideo(video, t);
+      const dsrc = getDetectFrame();   // [MEDIAPIPE SCHEDULER v2] entrée 320 px partagée
+      if(!dsrc) return;
+      const res = faceDetector.detectForVideo(dsrc, t);
       perf.faceCount++;   // [PERFORMANCE DIAGNOSTIC] cadence réelle
-      const vw = video.videoWidth||1, vh = video.videoHeight||1;
+      // boundingBox est en PIXELS de l'image analysée → normaliser sur le canvas réduit
+      const vw = dsrc.width||1, vh = dsrc.height||1;
       const boxes = (res.detections||[]).map(d=>{
         const b = d.boundingBox;
         const cx=(b.originX+b.width/2)/vw, cy=(b.originY+b.height/2)/vh, w=b.width/vw, h=b.height/vh;
@@ -3972,6 +4044,8 @@ function startRenderLoop(useFallback){
         (qualityLocked ? ' (verrouillé)' : '') + ' · taps : ' + currentTaps() + '\n' +
       (glRendererStr ? 'GPU : ' + glRendererStr + '\n' : '') +
       'Mains : ' + handDelegate + ' · ' + perf.handRate + '/s — Visages : ' + perf.faceRate + '/s\n' +
+      'Calque 2D : ' + (fxLayerVisible ? 'composité' : 'masqué (inactif)') +
+        ' · Accentuation : ' + (headsetMode ? headsetSharpen : 'OFF hors casque') + '\n' +
       'Tampon mains : ' + (ring ? 'actif' : 'inactif') +
         ' · Retard global : ' + (headsetMode ? 'OFF (obligatoire en casque)'
                                 : (globalLatencyActive() ? 'ON (diag Expert)' : 'OFF')) +
@@ -4033,6 +4107,8 @@ function startRenderLoop(useFallback){
 
   // [MEDIAPIPE SCHEDULER] alternance stricte : au plus UN détecteur par frame
   let nextDetector = 'hands';
+  // [HEADSET PERFORMANCE v2] état de composition du calque 2D
+  let fxLayerVisible = true;
 
   function frame(t){
     requestAnimationFrame(frame);
@@ -4135,6 +4211,13 @@ function startRenderLoop(useFallback){
     // casque : 0..30 (slider Expert) → coefficient shader 0..0.15 (modéré).
     gl.uniform1f(U.uLensK, headsetMode ? (headsetLensCorrection / 100) * 0.5 : 0);
     gl.uniform1f(U.uTaps, currentTaps());   // [ADAPTIVE QUALITY]
+    /* [HEADSET SHARPNESS] Coupée automatiquement dès qu'un effet clinique
+       adoucissant est actif (le rendu pathologique reste inchangé). */
+    const softeningActive =
+      (demOnFx && (state.blur.on || state.fog.on)) ||
+      (visOnFx && (state.acuity.on || state.cataract.on || state.dmla.on || state.retinitis.on));
+    gl.uniform1f(U.uSharpen, (headsetMode && !softeningActive) ? (headsetSharpen/100) * 0.9 : 0);
+    gl.uniform2f(U.uSharpenPx, texW > 0 ? 1/texW : 0, texH > 0 ? 1/texH : 0);
     // Écart d'orientation : forcé par FIELD_ROT_MODE, sinon détection auto
     // (basée sur la VUE : en mode casque, chaque œil a sa propre géométrie)
     if(FIELD_ROT_MODE === 'auto'){
@@ -4274,6 +4357,25 @@ function startRenderLoop(useFallback){
       if(nextDetector === 'hands'){ detectHands(t); nextDetector = 'faces'; }
       else                        { detectFaces(t); nextDetector = 'hands'; }
     }
+
+    /* [HEADSET PERFORMANCE v2] Le calque 2D n'est composité que s'il a un
+       contenu potentiel. Sinon : nettoyé UNE fois puis retiré de la
+       composition (visibility:hidden) → une seule surface plein écran. */
+    const fxNeeded = headsetMireOn || (handDiagOn && expertModeOn()) || (!directCameraTest && (
+      (demencesEnabled && (state.halluc.on || state.depth.on || state.latency.on ||
+                           state.bodySchema.on || state.face.on)) ||
+      (visuelEnabled && state.retinopathy.on)
+    ));
+    if(!fxNeeded){
+      if(fxLayerVisible){
+        fxctx.clearRect(0, 0, fxcanvas.width, fxcanvas.height);
+        fxcanvas.style.visibility = 'hidden';
+        fxLayerVisible = false;
+      }
+      updatePerformance(t);
+      return;   // rien d'autre à dessiner sur le calque 2D cette frame
+    }
+    if(!fxLayerVisible){ fxcanvas.style.visibility = ''; fxLayerVisible = true; }
 
     // Cible du calque 2D : plein écran, ou canvas "œil" (demi-largeur) en mode casque.
     // Les effets 2D (hallucinations, scotomes, mains, visages) sont dessinés UNE fois
@@ -4847,6 +4949,14 @@ applyStagePreset(15);
   };
   $$('.hq-btn').forEach(b => b.addEventListener('click', () => setQualityProfile(b.dataset.q, false)));
   window.syncQualityUI();
+
+  /* --- [HEADSET SHARPNESS] Slider Expert 0..100 (défaut 40). --- */
+  const hsharpRange   = $('#headset-sharpen-range');
+  const hsharpReadout = $('#headset-sharpen-readout');
+  if(hsharpRange) hsharpRange.addEventListener('input', e => {
+    headsetSharpen = +e.target.value;                // variable moteur globale
+    if(hsharpReadout) hsharpReadout.textContent = e.target.value;
+  });
 
   /* --- [ADAPTIVE QUALITY] Interrupteur Expert « Adaptation automatique »
      (activé par défaut). --- */
