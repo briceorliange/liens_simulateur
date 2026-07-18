@@ -1680,7 +1680,7 @@ let currentDpr = 1;
 // [PERFORMANCE DIAGNOSTIC] mesures glissantes (échantillonnage toutes les 500 ms)
 const perf = {
   frames:0, sumDt:0, avgFps:60, avgMs:16.7,
-  camFps:0, lastCamCount:0,
+  camFps:0, lastCamCount:0, uploadCount:0, uploadRate:0,
   handRate:0, faceRate:0, handCount:0, faceCount:0,
   lastSample:0, badSince:0, goodSince:0, lastAdapt:0
 };
@@ -3998,6 +3998,7 @@ function startRenderLoop(useFallback){
      Jamais de gl.finish(), readPixels() ni preserveDrawingBuffer. */
   let texW = 0, texH = 0;
   let lastUploadedVideoTime = -1;
+  let mipEnabled = false;   // [HEADSET SHARPNESS v2] état du filtre de minification
   function updateVideoTextureIfNeeded(srcEl){
     const isVideo = (srcEl === video);
     if(isVideo && video.readyState < 2) return;
@@ -4005,10 +4006,28 @@ function startRenderLoop(useFallback){
     const h = isVideo ? video.videoHeight : srcEl.height;
     if(!(w > 0 && h > 0)) return;
     let hasNew;
-    if(!isVideo)        hasNew = true;                      // canvas (retard global diag / fallback)
-    else if(hasRVFC)    hasNew = newVideoFrameAvailable;    // [VIDEO FRAME SYNC]
-    else                hasNew = (video.currentTime !== lastUploadedVideoTime); // repli
+    if(!isVideo){
+      hasNew = true;                      // canvas (retard global diag / fallback)
+    } else {
+      /* [VIDEO FRAME SYNC v2] Double signal anti-blocage : rVFC OU avancement
+         de currentTime. Certains navigateurs (constaté : Samsung, après un
+         applyConstraints) cessent d'appeler requestVideoFrameCallback → sans
+         ce repli, l'image serait figée ou systématiquement en retard. */
+      hasNew = newVideoFrameAvailable || (video.currentTime !== lastUploadedVideoTime);
+    }
     gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    /* [HEADSET SHARPNESS v2] Minification propre en casque : la caméra y est
+       fortement RÉDUITE (contain + champ de vision) avant d'être regrossie par
+       les lentilles ; sans mipmaps, l'aliasing scintille à chaque mouvement de
+       tête et rend les textes illisibles. Hors casque : LINEAR simple (cover,
+       quasi 1:1, mipmaps inutiles). */
+    const wantMip = headsetMode && isVideo;
+    if(wantMip !== mipEnabled){
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER,
+                       wantMip ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      mipEnabled = wantMip;
+      if(mipEnabled && texW > 0) gl.generateMipmap(gl.TEXTURE_2D); // texture complète immédiatement
+    }
     if(w !== texW || h !== texH){
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, srcEl); // réallocation : dimensions changées
       texW = w; texH = h;
@@ -4017,6 +4036,8 @@ function startRenderLoop(useFallback){
     } else {
       return; // aucune nouvelle frame : la texture actuelle reste valide
     }
+    if(mipEnabled) gl.generateMipmap(gl.TEXTURE_2D);   // chaîne de mips à jour (~1 ms)
+    perf.uploadCount++;                                 // fps caméra RÉELLEMENT affiché
     if(isVideo){
       newVideoFrameAvailable = false;
       lastUploadedVideoTime = video.currentTime;
@@ -4038,7 +4059,8 @@ function startRenderLoop(useFallback){
     headsetDiagEl.textContent =
       dot + ' DIAGNOSTIC CASQUE\n' +
       'Caméra réelle : ' + (video.videoWidth||camInfo.w||0) + '×' + (video.videoHeight||camInfo.h||0) +
-        (hasRVFC ? ' · ' + perf.camFps + ' fps' : (camInfo.fps ? ' · ' + camInfo.fps + ' fps (déclaré)' : '')) + '\n' +
+        ' · ' + Math.max(perf.camFps, perf.uploadRate) + ' fps affichés' +
+        (camInfo.fps ? ' (' + camInfo.fps + ' déclarés)' : '') + '\n' +
       'Rendu : ' + Math.round(perf.avgFps) + ' fps · ' + perf.avgMs.toFixed(1) + ' ms/frame\n' +
       'DPR : ' + currentDpr.toFixed(2) + ' · profil : ' + QUALITY_PROFILES[qualityProfile].label +
         (qualityLocked ? ' (verrouillé)' : '') + ' · taps : ' + currentTaps() + '\n' +
@@ -4088,6 +4110,7 @@ function startRenderLoop(useFallback){
     perf.frames = 0; perf.sumDt = 0;
     perf.camFps  = Math.round((videoFrameCount - perf.lastCamCount) * 1000 / span);
     perf.lastCamCount = videoFrameCount;
+    perf.uploadRate = Math.round(perf.uploadCount * 1000 / span); perf.uploadCount = 0;
     perf.handRate = Math.round(perf.handCount * 1000 / span); perf.handCount = 0;
     perf.faceRate = Math.round(perf.faceCount * 1000 / span); perf.faceCount = 0;
     perfLight = perf.avgFps >= 50 ? 'green' : (perf.avgFps >= 40 ? 'orange' : 'red');
